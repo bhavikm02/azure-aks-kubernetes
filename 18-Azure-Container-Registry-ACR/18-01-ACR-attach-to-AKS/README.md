@@ -5,6 +5,98 @@ description: Build a Docker Image, Push to Azure Container Registry and  Attach 
 
 # Integrate Azure Container Registry ACR with AKS
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Build & Push Docker Image"
+        Dockerfile[Dockerfile<br/>Custom application]
+        Dockerfile --> LocalBuild[docker build -t kube-nginx-acr:v1 .]
+        LocalBuild --> LocalTest[docker run -p 80:80 kube-nginx-acr:v1<br/>Test locally at http://localhost]
+        
+        LocalTest --> TagImage[docker tag kube-nginx-acr:v1<br/>acrforaksdemo2.azurecr.io/kube-nginx-acr:v1]
+    end
+    
+    subgraph "Azure Container Registry"
+        ACR[Azure Container Registry<br/>acrforaksdemo2.azurecr.io<br/>SKU: Basic]
+        
+        ACR --> EnableAdmin[Access Keys:<br/>Enable Admin User<br/>Get username/password]
+        
+        EnableAdmin --> DockerLogin[docker login acrforaksdemo2.azurecr.io<br/>Username: acrforaksdemo2<br/>Password: <admin-password>]
+        
+        TagImage --> PushToACR[docker push<br/>acrforaksdemo2.azurecr.io/kube-nginx-acr:v1]
+        PushToACR --> ACR
+        
+        ACR --> ImageStored[Image stored in ACR Repository]
+    end
+    
+    subgraph "Attach ACR to AKS"
+        AKSCluster[AKS Cluster: aksdemo2]
+        ImageStored --> AttachACR[az aks update<br/>--name aksdemo2<br/>--resource-group aks-rg2<br/>--attach-acr acrforaksdemo2]
+        
+        AttachACR --> CreateMSI[Create Managed Identity<br/>Assign AcrPull role to ACR]
+        CreateMSI --> AKSCluster
+    end
+    
+    subgraph "Deploy Application from ACR"
+        Deployment[Deployment YAML:<br/>kube-nginx-acr-deployment.yml]
+        Deployment --> ImageSpec[spec.template.spec.containers:<br/>  image: acrforaksdemo2.azurecr.io/kube-nginx-acr:v1<br/>  No imagePullSecrets needed]
+        
+        ImageSpec --> KubectlApply[kubectl apply -f deployment.yml]
+        KubectlApply --> CreatePod[Kubelet creates Pod]
+        
+        CreatePod --> PullImage[Kubelet pulls image from ACR<br/>Using Managed Identity<br/>Automatic authentication]
+        
+        AKSCluster --> PullImage
+        ImageStored --> PullImage
+        
+        PullImage --> PodRunning[Pod Running<br/>Image from ACR]
+    end
+    
+    subgraph "Service Exposure"
+        PodRunning --> Service[Service Type: LoadBalancer<br/>kube-nginx-acr-lb-service]
+        Service --> AzureLB[Azure Load Balancer<br/>Public IP created]
+        AzureLB --> ExternalAccess[External Access:<br/>http://<PUBLIC-IP>]
+    end
+    
+    subgraph "Verification Commands"
+        Verify[Verification]
+        Verify --> ACRList[az acr repository list<br/>--name acrforaksdemo2<br/>Shows: kube-nginx-acr]
+        Verify --> GetPods[kubectl get pods<br/>Shows: Running status]
+        Verify --> DescribePod[kubectl describe pod <pod-name><br/>Events: Pulled image successfully]
+        Verify --> GetSvc[kubectl get svc<br/>Shows: LoadBalancer EXTERNAL-IP]
+    end
+    
+    subgraph "Key Benefits"
+        Benefits[ACR Attached Benefits]
+        Benefits --> B1[✓ No imagePullSecrets needed<br/>Automatic authentication via MSI]
+        Benefits --> B2[✓ Secure image storage<br/>Private registry in Azure]
+        Benefits --> B3[✓ Simplified operations<br/>No credential management]
+        Benefits --> B4[✓ Azure integration<br/>Same region performance]
+        Benefits --> B5[✓ Role-based access<br/>AcrPull, AcrPush, AcrDelete]
+    end
+    
+    style ACR fill:#0078d4
+    style ImageStored fill:#28a745
+    style PodRunning fill:#28a745
+    style CreateMSI fill:#9370db
+```
+
+### Understanding the Diagram
+
+- **Azure Container Registry (ACR)**: Private **Docker registry** in Azure for securely storing and managing container images with SKU options (Basic, Standard, Premium)
+- **Build & Push Workflow**: Build Docker image locally, test it, **tag with ACR registry name**, then push to ACR repository
+- **Admin User Authentication**: Enable **Admin User** in ACR Access Keys to get username/password for Docker CLI authentication (for push)
+- **Attach ACR to AKS**: Use `az aks update --attach-acr` to **automatically create Managed Identity** with AcrPull role on the ACR for AKS cluster
+- **No imagePullSecrets Required**: Once ACR is attached, Pods can pull images **without imagePullSecrets** - authentication handled automatically by Managed Identity
+- **Managed Identity**: AKS uses **System-assigned or User-assigned Managed Identity** with AcrPull role to authenticate with ACR securely
+- **Image Pull**: When Pod is created, Kubelet **automatically pulls image from ACR** using Managed Identity credentials - no manual secrets needed
+- **LoadBalancer Service**: Expose application externally using **Service Type: LoadBalancer**, which provisions Azure Load Balancer with Public IP
+- **Verification**: Use `az acr repository list` to verify image in ACR, `kubectl describe pod` to see image pull events, and `kubectl get svc` for Public IP
+- **Best Practice**: ACR attached method is **simplest and most secure** for AKS integration - use for production workloads
+
+---
+
 ## Step-00: Pre-requisites
 - We should have Azure AKS Cluster Up and Running.
 - We have created a new aksdemo2 cluster as part of Azure Virtual Nodes demo in previous section.

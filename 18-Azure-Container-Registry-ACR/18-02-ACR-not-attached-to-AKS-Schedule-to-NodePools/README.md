@@ -5,6 +5,96 @@ description: Pull Docker Images from Azure Container Registry using Service Prin
 
 # Azure AKS Pull Docker Images from ACR using Service Principal
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Azure Container Registry"
+        ACR[ACR: acrdemo2ss.azurecr.io<br/>Image: acr-app2:v1]
+        ACR --> BuildPush[Build & Push Image:<br/>docker build -t acr-app2:v1 .<br/>docker tag + docker push]
+        BuildPush --> ImageInACR[Image stored in ACR]
+    end
+    
+    subgraph "Create Service Principal"
+        CreateSP[az ad sp create-for-rbac<br/>--name acr-sp-demo<br/>--skip-assignment]
+        CreateSP --> SPOutput[Service Principal Created:<br/>appId: <CLIENT_ID><br/>password: <CLIENT_SECRET><br/>tenant: <TENANT_ID>]
+        
+        SPOutput --> SaveCredentials[Save credentials for next step]
+    end
+    
+    subgraph "Assign AcrPull Role"
+        GetACRID[az acr show --name acrdemo2ss<br/>--query id --output tsv]
+        GetACRID --> ACRID[ACR Resource ID]
+        
+        ACRID --> AssignRole[az role assignment create<br/>--assignee <SP_CLIENT_ID><br/>--scope <ACR_RESOURCE_ID><br/>--role AcrPull]
+        
+        AssignRole --> RoleAssigned[Service Principal has<br/>AcrPull permission on ACR]
+    end
+    
+    subgraph "Create Kubernetes Secret"
+        SaveCredentials --> CreateSecret[kubectl create secret docker-registry acr-secret<br/>--docker-server=acrdemo2ss.azurecr.io<br/>--docker-username=<SP_CLIENT_ID><br/>--docker-password=<SP_CLIENT_SECRET><br/>--docker-email=<your-email>]
+        
+        CreateSecret --> K8sSecret[Secret: acr-secret<br/>Type: kubernetes.io/dockerconfigjson<br/>Namespace: default]
+    end
+    
+    subgraph "Deploy Application to Node Pools"
+        Deployment[Deployment YAML:<br/>acr-app2-deployment.yml]
+        Deployment --> ImageSpecSP[spec.template.spec:<br/>  containers:<br/>    image: acrdemo2ss.azurecr.io/acr-app2:v1<br/>  imagePullSecrets:<br/>    - name: acr-secret]
+        
+        ImageSpecSP --> NoNodeSelector[No nodeSelector<br/>Schedules to regular AKS Node Pool]
+        
+        NoNodeSelector --> KubectlApply[kubectl apply -f deployment.yml]
+        KubectlApply --> CreatePod[Kubelet creates Pod]
+        
+        CreatePod --> PullWithSecret[Kubelet pulls image using<br/>imagePullSecrets: acr-secret<br/>SP credentials for authentication]
+        
+        K8sSecret --> PullWithSecret
+        ImageInACR --> PullWithSecret
+        
+        PullWithSecret --> PodOnNodePool[Pod Running on<br/>Regular Node Pool<br/>aks-agentpool-xxx-vmss000000]
+    end
+    
+    subgraph "Service Exposure"
+        PodOnNodePool --> Service[Service Type: LoadBalancer<br/>acr-app2-lb-service]
+        Service --> AzureLB[Azure Load Balancer<br/>Public IP]
+        AzureLB --> ExternalAccess[External Access:<br/>http://<PUBLIC-IP>]
+    end
+    
+    subgraph "Verification Commands"
+        Verify[Verification]
+        Verify --> GetSecret[kubectl get secret acr-secret<br/>Shows: kubernetes.io/dockerconfigjson]
+        Verify --> GetPods[kubectl get pods -o wide<br/>NODE: aks-agentpool-xxx]
+        Verify --> DescribePod[kubectl describe pod <pod-name><br/>Events: Pulled image from acrdemo2ss.azurecr.io]
+        Verify --> GetSvc[kubectl get svc<br/>EXTERNAL-IP for LoadBalancer]
+    end
+    
+    subgraph "Service Principal vs Managed Identity"
+        Comparison[Authentication Methods]
+        Comparison --> SPMethod[Service Principal:<br/>✓ Works with any K8s cluster<br/>✓ Manual secret management<br/>❌ Credential rotation needed<br/>❌ More complex setup]
+        Comparison --> MSIMethod[Managed Identity (ACR Attached):<br/>✓ No secrets in cluster<br/>✓ Automatic credential rotation<br/>✓ Simpler setup<br/>✓ Best for AKS + ACR]
+    end
+    
+    style ACR fill:#0078d4
+    style RoleAssigned fill:#9370db
+    style K8sSecret fill:#ffa500
+    style PodOnNodePool fill:#28a745
+```
+
+### Understanding the Diagram
+
+- **ACR Not Attached**: When ACR is **not attached to AKS**, must use **Service Principal credentials** to authenticate and pull images from ACR
+- **Service Principal Creation**: Create SP using `az ad sp create-for-rbac` and save the **appId (CLIENT_ID) and password (CLIENT_SECRET)** for authentication
+- **AcrPull Role Assignment**: Assign **AcrPull role** to Service Principal on the ACR resource, granting read-only access to pull images
+- **Kubernetes Secret**: Create **docker-registry Secret** containing SP credentials - Kubelet uses this to authenticate with ACR when pulling images
+- **imagePullSecrets**: Deployment **must reference the Secret** in `spec.template.spec.imagePullSecrets` for Kubelet to use SP credentials
+- **Scheduled to Node Pools**: Without nodeSelector, Pods are **scheduled to regular AKS Node Pools** (Azure VMs), not Virtual Nodes
+- **Image Pull Process**: Kubelet reads **imagePullSecrets**, extracts SP credentials from Secret, and authenticates with ACR to pull the image
+- **LoadBalancer Service**: Expose application with **LoadBalancer Service**, creating Azure Load Balancer with Public IP for external access
+- **Credential Management**: Service Principal credentials require **manual rotation** and management, unlike Managed Identity (ACR attached) which auto-rotates
+- **Use Case**: Service Principal method is useful for **cross-cluster scenarios** or when ACR is in a different subscription/tenant than AKS
+
+---
+
 ## Step-00: Pre-requisites
 - We should have Azure AKS Cluster Up and Running.
 - We have created a new aksdemo2 cluster as part of Azure Virtual Nodes demo in previous section.

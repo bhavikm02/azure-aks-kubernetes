@@ -5,6 +5,97 @@ description: Enable HTTP Application Routing AddOn to enable Ingress and Externa
 
 # Azure AKS - Enable HTTP Application Routing AddOn
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Enable HTTP Application Routing AddOn"
+        EnableAddon[Enable Add On]
+        EnableAddon --> Option1[Option 1: Azure Portal<br/>Settings -> Networking<br/>Check HTTP Application Routing]
+        EnableAddon --> Option2[Option 2: Azure CLI<br/>az aks enable-addons<br/>--addons http_application_routing]
+        EnableAddon --> Option3[Option 3: During Cluster Creation<br/>Networking Tab<br/>Enable checkbox]
+    end
+    
+    subgraph "Automatically Installed Components"
+        AddOn[HTTP Application Routing AddOn]
+        AddOn --> AutoInstall[Automatically Installs:]
+        
+        AutoInstall --> IngressController[NGINX Ingress Controller<br/>Namespace: kube-system<br/>Pod: addon-http-application-routing-nginx-ingress-controller]
+        
+        AutoInstall --> ExternalDNS[External DNS<br/>Namespace: kube-system<br/>Pod: addon-http-application-routing-external-dns]
+        
+        AutoInstall --> DNSZone[Azure DNS Zone<br/>Format: <random-guid>.<region>.aksapp.io<br/>Example: a0e123.eastus.aksapp.io]
+        
+        IngressController --> IngressService[Service: LoadBalancer<br/>Public IP created]
+    end
+    
+    subgraph "Application Deployment with Add On"
+        App[Deploy Application]
+        App --> Deployment1[Deployment: app1-nginx]
+        App --> Service1[Service: app1-nginx-service<br/>Type: ClusterIP]
+        
+        App --> Ingress1[Ingress Resource]
+        Ingress1 --> IngressSpec[spec:<br/>  ingressClassName: addon-http-application-routing<br/>  rules:<br/>    - host: app1.a0e123.eastus.aksapp.io<br/>      http:<br/>        paths:<br/>          - path: /<br/>            backend:<br/>              service:<br/>                name: app1-nginx-service]
+    end
+    
+    subgraph "DNS & Routing Flow"
+        User[User Request]
+        User --> DNS[DNS Query:<br/>app1.a0e123.eastus.aksapp.io]
+        DNS --> AzureDNS[Azure DNS Zone<br/>a0e123.eastus.aksapp.io]
+        AzureDNS --> ARecord[A Record:<br/>app1.a0e123.eastus.aksapp.io<br/>-> Ingress Controller Public IP]
+        
+        ARecord --> IngressLB[Ingress Controller<br/>LoadBalancer Public IP]
+        IngressLB --> IngressRules[Check Ingress Rules<br/>Match Host header]
+        IngressRules --> Route[Route to Service:<br/>app1-nginx-service]
+        Route --> Pod[Pod: app1-nginx]
+    end
+    
+    subgraph "ExternalDNS Automation"
+        WatchIngress[ExternalDNS watches<br/>Ingress resources]
+        WatchIngress --> DetectHost[Detects new host:<br/>app1.a0e123.eastus.aksapp.io]
+        DetectHost --> GetIngressIP[Get Ingress Controller<br/>Public IP]
+        GetIngressIP --> CreateARecord[Auto-create A Record<br/>in Azure DNS Zone]
+        CreateARecord --> UpdateDNS[DNS Record Created:<br/>app1 -> Ingress IP]
+    end
+    
+    subgraph "Verification Commands"
+        Verify[Verification]
+        Verify --> CheckPods[kubectl get pods -n kube-system<br/>Shows: ingress + external-dns pods]
+        Verify --> CheckSvc[kubectl get svc -n kube-system<br/>Shows: ingress LoadBalancer + Public IP]
+        Verify --> CheckIngress[kubectl get ingress<br/>Shows: Ingress with ADDRESS]
+        Verify --> CheckDNS[az aks show --name aksdemo2<br/>--resource-group aks-rg2<br/>--query addonProfiles.httpApplicationRouting.config]
+    end
+    
+    subgraph "Important Notes"
+        Notes[⚠️ Important Limitations]
+        Notes --> DevTest[✓ Dev/Test ONLY<br/>NOT for production]
+        Notes --> RandomDomain[✓ Random DNS zone name<br/>Cannot use custom domains]
+        Notes --> NoSSL[✓ No built-in SSL/TLS<br/>No Let's Encrypt integration]
+        Notes --> BasicIngress[✓ Basic NGINX ingress<br/>Limited customization]
+        Notes --> Alternative[For Production Use:<br/>✓ Manual NGINX Ingress<br/>✓ Custom ExternalDNS<br/>✓ Cert-Manager for SSL]
+    end
+    
+    style AddOn fill:#ffa500
+    style IngressController fill:#326ce5
+    style DNSZone fill:#0078d4
+    style Notes fill:#ff6b6b
+```
+
+### Understanding the Diagram
+
+- **HTTP Application Routing AddOn**: Azure-managed add-on that **automatically installs Ingress Controller and ExternalDNS** for quick dev/test setup
+- **Automatic Installation**: Enabling the add-on automatically deploys **NGINX Ingress Controller and ExternalDNS** Pods in kube-system namespace
+- **Azure DNS Zone**: Add-on creates an **Azure DNS Zone** with a random name like `<guid>.<region>.aksapp.io` for hosting application DNS records
+- **ExternalDNS Automation**: ExternalDNS watches Ingress resources and **automatically creates A records** in the Azure DNS Zone pointing to Ingress IP
+- **IngressClassName**: Must specify `ingressClassName: addon-http-application-routing` in Ingress resources to use the add-on's Ingress Controller
+- **Host Format**: Ingress hosts must use the format `<subdomain>.<guid>.<region>.aksapp.io` using the cluster's assigned DNS zone
+- **LoadBalancer Public IP**: Ingress Controller Service creates an **Azure Load Balancer with Public IP** for incoming traffic
+- **DNS Resolution**: User requests resolve via Azure DNS Zone -> A Record -> Ingress Controller Public IP -> Pod
+- **Dev/Test Only**: Add-on is **NOT recommended for production** due to random DNS zone, no SSL support, and limited customization options
+- **Production Alternative**: For production, manually install **NGINX Ingress + custom ExternalDNS + Cert-Manager** with your own domain and Let's Encrypt SSL certificates
+
+---
+
 ## Step-01: Introduction
 - Enable HTTP Application Routing Add On
 - Ingress and External DNS will be automatically installed and configured on Azure AKS Cluster

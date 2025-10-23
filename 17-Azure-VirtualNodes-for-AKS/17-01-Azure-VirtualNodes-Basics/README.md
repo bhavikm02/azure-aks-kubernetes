@@ -5,6 +5,92 @@ description: Create Azure Kubernetes Services (AKS) cluster to use virtual nodes
 
 # Azure Kubernetes Service AKS Virtual Nodes (Serverless)
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Create AKS Cluster with Virtual Nodes"
+        Portal[Azure Portal]
+        Portal --> CreateAKS[Create AKS Cluster<br/>Basics: aksdemo2]
+        CreateAKS --> EnableVN[Node Pools:<br/>Enable Virtual Nodes]
+        EnableVN --> AdvancedNet[Networking:<br/>Azure CNI Advanced<br/>Azure Network Policy]
+        AdvancedNet --> CreateCluster[Review + Create]
+    end
+    
+    subgraph "Cluster Architecture"
+        AKSCluster[AKS Cluster: aksdemo2]
+        
+        AKSCluster --> RegularNode[Regular Node<br/>aks-agentpool-xxx-vmss000000<br/>Azure VM<br/>Status: Ready]
+        
+        AKSCluster --> VirtualNode[Virtual Node<br/>virtual-node-aci-linux<br/>Status: Ready<br/>Version: v1.14.3-vk-azure-aci]
+        
+        VirtualNode --> ACIConnector[Pod: aci-connector-linux-xxx<br/>Namespace: kube-system<br/>Manages ACI integration]
+    end
+    
+    subgraph "Deployment Manifest for Virtual Nodes"
+        Deployment[Deployment YAML]
+        Deployment --> PodSpec[spec.template.spec:]
+        
+        PodSpec --> NodeSelector[nodeSelector:<br/>  kubernetes.io/role: agent<br/>  beta.kubernetes.io/os: linux<br/>  type: virtual-kubelet]
+        
+        PodSpec --> Tolerations[tolerations:<br/>  - key: virtual-kubelet.io/provider<br/>    operator: Exists<br/>  - key: azure.com/aci<br/>    effect: NoSchedule]
+    end
+    
+    subgraph "Pod Scheduling"
+        SchedulePod[kubectl apply -f deployment.yml]
+        SchedulePod --> Scheduler[Kubernetes Scheduler]
+        Scheduler --> EvaluateNode{Evaluate<br/>nodeSelector<br/>+ tolerations}
+        
+        EvaluateNode --> VirtualNodeMatch[Matches Virtual Node]
+        VirtualNodeMatch --> ACIConnectorPod[aci-connector-linux<br/>receives Pod request]
+        ACIConnectorPod --> ProvisionACI[Provision ACI<br/>Container Instance]
+        ProvisionACI --> RunningPod[Pod Running on ACI<br/>Node: virtual-node-aci-linux]
+    end
+    
+    subgraph "Verification Commands"
+        Commands[kubectl Commands]
+        Commands --> GetNodes[kubectl get nodes<br/>Shows: regular + virtual nodes]
+        Commands --> GetPods[kubectl get pods -o wide<br/>Shows: Pod scheduled on virtual-node-aci-linux]
+        Commands --> GetKubeSystem[kubectl get pods -n kube-system<br/>Shows: aci-connector-linux-xxx]
+        Commands --> LogsACI[kubectl logs aci-connector-linux-xxx -n kube-system<br/>Shows: ACI provisioning logs]
+    end
+    
+    subgraph "Azure Resources Created"
+        ResourceGroup[Resource Group: aks-rg2]
+        ResourceGroup --> AKSRes[AKS Cluster: aksdemo2]
+        ResourceGroup --> VNET[Virtual Network<br/>Azure CNI]
+        ResourceGroup --> VMSSRes[VMSS for Node Pool]
+        ResourceGroup --> ACIRes[ACI Container Groups<br/>Created dynamically per Pod]
+        ResourceGroup --> MSI[Managed Identity<br/>For ACI integration]
+    end
+    
+    subgraph "Load Balancer Service"
+        Service[Service Type: LoadBalancer]
+        Service --> CheckNode{Pod scheduled<br/>on which node?}
+        CheckNode -->|Virtual Node| ACIPubIP[ACI gets Public IP<br/>Azure Load Balancer created]
+        CheckNode -->|Regular Node| VMPubIP[VM Load Balancer Public IP]
+    end
+    
+    style VirtualNode fill:#00d1b2
+    style ProvisionACI fill:#28a745
+    style ACIConnector fill:#326ce5
+```
+
+### Understanding the Diagram
+
+- **Azure CNI Required**: Virtual Nodes require **Azure CNI networking** to integrate ACI containers into the same virtual network as cluster nodes
+- **Virtual Node Enablement**: Enable Virtual Nodes during **cluster creation** in the "Node Pools" tab or post-creation via Azure Portal/CLI
+- **aci-connector-linux Pod**: Runs in **kube-system namespace** and acts as the Virtual Kubelet provider for Azure Container Instances
+- **Two Node Types**: Cluster has both **regular VM nodes** (aks-agentpool-xxx) and **virtual-node-aci-linux** (serverless ACI)
+- **NodeSelector + Tolerations**: Pods **must specify** the virtual-kubelet nodeSelector and ACI tolerations to be scheduled on Virtual Nodes
+- **Dynamic ACI Provisioning**: When a Pod targets Virtual Node, **aci-connector-linux provisions an ACI Container Group** in the resource group
+- **Fast Provisioning**: ACI containers start in **seconds**, much faster than provisioning new VMs for regular nodes
+- **LoadBalancer Service**: Services of type LoadBalancer work seamlessly - **ACI Pods get their own Public IP** via Azure Load Balancer
+- **Verification**: Use `kubectl get nodes` to see both regular and virtual nodes, and `kubectl get pods -o wide` to see which node each Pod runs on
+- **Cost Model**: Pay for **ACI runtime per-second** for Virtual Node Pods, vs paying for always-on VMs for regular nodes
+
+---
+
 ## Step-01: Introduction
 - What is [Virtual Kubelet](https://github.com/virtual-kubelet/virtual-kubelet)?
 - What is [Azure Container Instances - ACI](https://docs.microsoft.com/en-us/azure/container-instances/)?

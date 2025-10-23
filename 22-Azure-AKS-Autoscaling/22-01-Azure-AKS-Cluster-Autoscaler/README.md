@@ -1,5 +1,100 @@
 # Azure AKS - Cluster Autoscaler
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "AKS Cluster with Cluster Autoscaler"
+        AKSCluster[AKS Cluster<br/>--enable-cluster-autoscaler<br/>--min-count 1<br/>--max-count 5]
+        
+        AKSCluster --> NodePool[Node Pool: agentpool<br/>Current: 1 node<br/>Min: 1 node<br/>Max: 5 nodes]
+        
+        NodePool --> Node1[Node 1<br/>Running Pods]
+    end
+    
+    subgraph "Scale-Up Scenario"
+        DeployPods[Deploy Application<br/>30 replicas requested]
+        DeployPods --> PendingPods[20 Pods Running<br/>10 Pods Pending<br/>Status: Insufficient resources]
+        
+        PendingPods --> CADetects[Cluster Autoscaler detects<br/>Pending Pods<br/>Insufficient node capacity]
+        
+        CADetects --> EvaluateScale{Can add nodes<br/>within max-count?}
+        EvaluateScale -->|Yes, current=1, max=5| ProvisionVMs[Provision additional nodes<br/>Add 2-3 VMs to node pool]
+        EvaluateScale -->|No, at max| CannotScale[Cannot scale up<br/>Pods remain Pending]
+        
+        ProvisionVMs --> VMProvision[Azure provisions VMs<br/>Joins cluster as nodes<br/>~3-5 minutes]
+        
+        VMProvision --> SchedulePending[Scheduler assigns<br/>Pending Pods to new nodes]
+        SchedulePending --> AllRunning[All 30 Pods Running<br/>Across 3-4 nodes]
+    end
+    
+    subgraph "Scale-Down Scenario"
+        LowUtilization[Node utilization drops<br/>Pods scaled down or deleted]
+        LowUtilization --> CAMonitors[Cluster Autoscaler monitors<br/>Node utilization < threshold<br/>For 10+ minutes]
+        
+        CAMonitors --> CheckEvict{Can evict Pods<br/>from underutilized node?}
+        CheckEvict -->|Yes| EvictPods[Evict Pods from node<br/>Reschedule to other nodes]
+        CheckEvict -->|No| KeepNode[Keep node<br/>- DaemonSets<br/>- Local storage<br/>- Pod anti-affinity]
+        
+        EvictPods --> DrainNode[Drain node gracefully<br/>Wait for Pod termination]
+        DrainNode --> RemoveNode[Remove node from pool<br/>Deallocate VM]
+        RemoveNode --> ScaledDown[Node pool scaled down<br/>Back to minimum count]
+    end
+    
+    subgraph "Cluster Autoscaler Configuration"
+        CreateCluster[Create Cluster with CA]
+        CreateCluster --> AZCommands[az aks create<br/>--enable-cluster-autoscaler<br/>--min-count 1<br/>--max-count 5<br/>--node-count 1]
+        
+        UpdateCluster[Update Existing Cluster]
+        UpdateCluster --> EnableCA[az aks update<br/>--enable-cluster-autoscaler<br/>--min-count 1<br/>--max-count 5]
+        
+        UpdateCluster --> DisableCA[az aks update<br/>--disable-cluster-autoscaler]
+        
+        UpdateCluster --> UpdateRange[az aks update<br/>--update-cluster-autoscaler<br/>--min-count 2<br/>--max-count 10]
+    end
+    
+    subgraph "Portal Configuration"
+        PortalConfig[Azure Portal<br/>Kubernetes Services -> Nodepools]
+        PortalConfig --> ScaleMethod[Scale Method:<br/>Manual vs Automatic]
+        PortalConfig --> AutoConfig[Automatic:<br/>Node count range: 1-5<br/>Current node count: 1]
+    end
+    
+    subgraph "How Cluster Autoscaler Works"
+        CALogic[Cluster Autoscaler Logic]
+        CALogic --> ScaleUpTrigger[Scale-Up Trigger:<br/>✓ Pods in Pending state<br/>✓ Reason: Insufficient resources<br/>✓ Can add nodes within max]
+        CALogic --> ScaleDownTrigger[Scale-Down Trigger:<br/>✓ Node utilization < 50%<br/>✓ For 10+ minutes<br/>✓ Pods can be evicted<br/>✓ Above minimum count]
+        CALogic --> SafetyChecks[Safety Checks:<br/>✓ Respect Pod Disruption Budgets<br/>✓ Don't evict Pods with local storage<br/>✓ Don't evict DaemonSet Pods<br/>✓ Honor Pod anti-affinity]
+    end
+    
+    subgraph "Use Cases"
+        UseCases[Cluster Autoscaler Use Cases]
+        UseCases --> UC1[✓ Variable workloads<br/>Traffic spikes during day]
+        UseCases --> UC2[✓ CI/CD pipelines<br/>Burst build capacity]
+        UseCases --> UC3[✓ Cost optimization<br/>Scale down during off-hours]
+        UseCases --> UC4[✓ Unpredictable demand<br/>Automatic capacity management]
+    end
+    
+    style ProvisionVMs fill:#28a745
+    style ScaledDown fill:#28a745
+    style CannotScale fill:#ff6b6b
+    style CADetects fill:#326ce5
+```
+
+### Understanding the Diagram
+
+- **Cluster Autoscaler**: AKS feature that **automatically adjusts the number of nodes** in a node pool based on resource demands and Pod scheduling status
+- **Scale-Up Trigger**: CA detects **Pods in Pending state** due to insufficient node capacity and provisions additional VMs (within max-count limit)
+- **Scale-Down Trigger**: CA monitors **underutilized nodes** (< 50% utilization for 10+ minutes) and removes them if Pods can be safely evicted
+- **Min/Max Count**: Cluster Autoscaler operates within **configured boundaries** - minimum nodes always present, maximum nodes limit scale-out
+- **Enable at Creation**: Use `az aks create --enable-cluster-autoscaler --min-count 1 --max-count 5` to enable CA when creating cluster
+- **Enable on Existing**: Use `az aks update --enable-cluster-autoscaler` to add CA to existing cluster, or `--disable-cluster-autoscaler` to turn off
+- **VM Provisioning Time**: Adding new nodes takes **3-5 minutes** for Azure to provision VMs and join them to the cluster
+- **Safety Checks**: CA respects **Pod Disruption Budgets**, doesn't evict Pods with local storage or DaemonSets, and honors Pod anti-affinity rules
+- **Cost Optimization**: Automatically **scales down during low usage periods**, deallocating VMs and reducing infrastructure costs
+- **Complementary to HPA**: Cluster Autoscaler adds/removes **nodes**, while Horizontal Pod Autoscaler scales **Pods** - use together for full autoscaling
+
+---
+
 ## Step-01: Introduction
 - The Kubernetes Cluster Autoscaler automatically adjusts the number of nodes in your cluster when pods fail to launch due to lack of resources or when nodes in the cluster are underutilized and their pods can be rescheduled onto other nodes in the cluster.
 

@@ -4,6 +4,90 @@ description: Understand Kubernetes Namespaces Limit Range Concept Azure Kubernet
 ---
 # Kubernetes Namespaces - LimitRange - Declarative using YAML
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Namespace without LimitRange"
+        NS1[Namespace: dev-no-limits]
+        NS1 --> Pod1[Pod without resources:<br/>Can request any amount<br/>❌ May request too little<br/>❌ May request too much]
+        Pod1 --> Problem1[Problems:<br/>Resource exhaustion<br/>Unfair resource distribution<br/>Inconsistent pod specs]
+    end
+    
+    subgraph "Namespace with LimitRange"
+        NS2[Namespace: dev-with-limits]
+        NS2 --> LimitRange[LimitRange Resource<br/>Defines constraints]
+        
+        LimitRange --> DefaultRequest[default:<br/>  cpu: 100m<br/>  memory: 128Mi]
+        LimitRange --> DefaultLimit[defaultRequest:<br/>  cpu: 100m<br/>  memory: 128Mi]
+        LimitRange --> MaxLimit[max:<br/>  cpu: 500m<br/>  memory: 1Gi]
+        LimitRange --> MinLimit[min:<br/>  cpu: 10m<br/>  memory: 16Mi]
+    end
+    
+    subgraph "Pod Creation with LimitRange"
+        CreatePod[Create Pod in namespace]
+        CreatePod --> HasResources{Pod has<br/>resources<br/>defined?}
+        
+        HasResources -->|No| ApplyDefaults[Apply default requests/limits<br/>from LimitRange]
+        HasResources -->|Yes| ValidateResources{Within<br/>min/max<br/>constraints?}
+        
+        ValidateResources -->|Yes| AllowCreation[Pod Created Successfully]
+        ValidateResources -->|No| RejectPod[Pod Rejected<br/>Admission error]
+        
+        ApplyDefaults --> AllowCreation
+    end
+    
+    subgraph "LimitRange Enforcement Examples"
+        Example1[Example 1: Pod with no resources]
+        Example1 --> Auto1[Automatically gets:<br/>requests: 100m CPU, 128Mi Memory<br/>limits: 100m CPU, 128Mi Memory]
+        
+        Example2[Example 2: Pod requests 600m CPU]
+        Example2 --> Reject2[Rejected:<br/>Exceeds max: 500m CPU]
+        
+        Example3[Example 3: Pod requests 5m CPU]
+        Example3 --> Reject3[Rejected:<br/>Below min: 10m CPU]
+        
+        Example4[Example 4: Pod requests 200m CPU]
+        Example4 --> Accept4[Accepted:<br/>Within range 10m-500m]
+    end
+    
+    subgraph "LimitRange Scope"
+        Scope[LimitRange Applies to:]
+        Scope --> Containers[Container level<br/>Per container in Pod]
+        Scope --> Pods[Pod level<br/>Sum of all containers]
+        Scope --> PVC[PersistentVolumeClaim<br/>Storage requests]
+    end
+    
+    subgraph "Benefits"
+        Benefits[LimitRange Benefits]
+        Benefits --> B1[Prevents resource abuse<br/>No unlimited requests]
+        Benefits --> B2[Sets sensible defaults<br/>Developers don't need to specify]
+        Benefits --> B3[Ensures minimum quality<br/>Prevents too-small allocations]
+        Benefits --> B4[Namespace-level control<br/>Different limits per environment]
+        Benefits --> B5[Admission control<br/>Validates before creation]
+    end
+    
+    style LimitRange fill:#326ce5
+    style AllowCreation fill:#28a745
+    style RejectPod fill:#ff6b6b
+    style Benefits fill:#28a745
+```
+
+### Understanding the Diagram
+
+- **LimitRange**: Namespace-scoped resource that sets **default, minimum, and maximum** resource constraints for containers, Pods, and PVCs
+- **Default Values**: When Pods don't specify resources, LimitRange automatically applies **default requests and limits**, ensuring consistency
+- **Minimum Constraints**: Prevents creating Pods with **too few resources**, which could lead to poor performance or crashes
+- **Maximum Constraints**: Prevents resource hogging by limiting the **maximum CPU and memory** a single Pod can request
+- **Admission Control**: LimitRange is enforced at **Pod creation time** by the admission controller, rejecting invalid Pod specs
+- **Namespace Isolation**: Each namespace can have its own LimitRange with **different constraints** (dev: lower limits, prod: higher limits)
+- **Container-Level Enforcement**: LimitRange applies to **individual containers** within Pods, not just the Pod as a whole
+- **Automatic Resource Assignment**: Developers can omit resource specs, and **LimitRange fills them in automatically** based on defaults
+- **Validation Before Creation**: Invalid resource requests are **rejected immediately** with clear error messages, preventing deployment issues
+- **Best Practice**: Apply LimitRange to **all namespaces** to ensure consistent resource management and prevent runaway resource consumption
+
+---
+
 [![Image](https://stacksimplify.com/course-images/azure-kubernetes-service-namespaces-limit-range.png "Azure Kubernetes Service - Masterclass")](https://stacksimplify.com/course-images/azure-kubernetes-service-namespaces-limit-range.png){:target="_blank"}  
 
 

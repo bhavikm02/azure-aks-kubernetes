@@ -2,6 +2,114 @@
 
 [![Image](https://stacksimplify.com/course-images/azure-kubernetes-service-with-azure-devops-and-terraform-bestseller.png "Azure Kubernetes Service with Azure DevOps and Terraform")](https://www.udemy.com/course/azure-kubernetes-service-with-azure-devops-and-terraform/?referralCode=2499BF7F5FAAA506ED42)
 
+## 📊 Course Architecture & Learning Path Diagram
+
+```mermaid
+graph TB
+    Start([Start Course]) --> Prerequisites[00: Prerequisites<br/>Azure Account<br/>GitHub Repositories]
+    
+    Prerequisites --> Foundation[Foundation Phase]
+    
+    subgraph Foundation [Foundation: Basics & Core Concepts]
+        F1[01: Create AKS Cluster<br/>Azure Portal Setup]
+        F2[02: Docker Fundamentals<br/>Images & Containers]
+        F3[03: kubectl Imperative<br/>Pods, ReplicaSets, Deployments]
+        F4[04: YAML Declarative<br/>Manifests & Configuration]
+    end
+    
+    Foundation --> Storage[Storage Phase]
+    
+    subgraph Storage [Storage & Persistence]
+        S1[05: Azure Disks<br/>PV, PVC, StorageClass]
+        S2[06: Azure MySQL<br/>Managed Database]
+        S3[07: Kubernetes Secrets<br/>Sensitive Data]
+        S4[08: Azure Files<br/>Shared Storage]
+    end
+    
+    Storage --> Networking[Networking Phase]
+    
+    subgraph Networking [Ingress & Networking]
+        N1[09: Ingress Basics<br/>NGINX Ingress Controller]
+        N2[10: Context Path Routing<br/>Path-based traffic]
+        N3[11: DNS Delegation<br/>AWS Route53 to Azure DNS]
+        N4[12: ExternalDNS<br/>Automatic DNS records]
+        N5[13: Domain Routing<br/>Host-based routing]
+        N6[14: SSL/TLS<br/>LetsEncrypt Certificates]
+    end
+    
+    Networking --> ResourceMgmt[Resource Management]
+    
+    subgraph ResourceMgmt [Resource Management & Isolation]
+        R1[15: Requests & Limits<br/>Resource Quotas]
+        R2[16: Namespaces<br/>LimitRange, ResourceQuota]
+    end
+    
+    ResourceMgmt --> Advanced[Advanced Features]
+    
+    subgraph Advanced [Advanced AKS Features]
+        A1[17: Virtual Nodes<br/>Serverless ACI]
+        A2[18: Azure Container Registry<br/>Private Registry]
+        A3[20: HTTP App Routing<br/>Simplified Ingress]
+        A4[21: Azure AD & RBAC<br/>Authentication & Authorization]
+        A5[22: Autoscaling<br/>HPA & Cluster Autoscaler]
+    end
+    
+    Advanced --> CICD[CI/CD Phase]
+    
+    subgraph CICD [DevOps & Automation]
+        C1[19: Azure DevOps<br/>Build & Deploy Pipelines]
+    end
+    
+    Advanced --> Production[Production Phase]
+    
+    subgraph Production [Production-Grade Deployments]
+        P1[23: Production Cluster<br/>az aks CLI Design]
+        P2[24: Terraform IaC<br/>Infrastructure as Code]
+        P3[25: Terraform + DevOps<br/>Automated Provisioning]
+    end
+    
+    Foundation --> K8sConcepts[30+ Kubernetes Concepts]
+    Storage --> K8sConcepts
+    Networking --> K8sConcepts
+    ResourceMgmt --> K8sConcepts
+    Advanced --> K8sConcepts
+    
+    Foundation --> AzureServices[21 Azure Services]
+    Storage --> AzureServices
+    Networking --> AzureServices
+    ResourceMgmt --> AzureServices
+    Advanced --> AzureServices
+    CICD --> AzureServices
+    Production --> AzureServices
+    
+    K8sConcepts --> Mastery[AKS Mastery Achieved]
+    AzureServices --> Mastery
+    CICD --> Mastery
+    Production --> Mastery
+    
+    style Start fill:#e1f5ff
+    style Foundation fill:#326ce5
+    style Storage fill:#9370db
+    style Networking fill:#20b2aa
+    style Advanced fill:#ff8c00
+    style Production fill:#28a745
+    style Mastery fill:#ffd700
+```
+
+### Understanding the Learning Path
+
+- **Prerequisites Foundation**: Start with **Azure account setup** and **forking GitHub repositories** containing all course materials and code examples
+- **Foundation Phase**: Master **Docker fundamentals**, create your first **AKS cluster**, and learn both **imperative** (kubectl) and **declarative** (YAML) approaches
+- **Storage Phase**: Implement **persistent storage** using **Azure Disks**, **Azure Files**, **Azure MySQL**, and manage **secrets** for database credentials
+- **Networking Phase**: Progress from basic **Ingress** to advanced features like **SSL/TLS certificates**, **ExternalDNS**, and **domain-based routing**
+- **Resource Management**: Learn to **isolate workloads** using **namespaces** and control resource consumption with **requests, limits, and quotas**
+- **Advanced Features**: Explore **Virtual Nodes** (serverless), **Azure Container Registry**, **Azure AD authentication**, and **autoscaling** (HPA & Cluster Autoscaler)
+- **CI/CD Integration**: Build **end-to-end pipelines** with **Azure DevOps** for automated building, testing, and deployment to AKS clusters
+- **Production Deployments**: Design **production-grade clusters** using **az aks CLI** and **Terraform**, implementing infrastructure as code best practices
+- **30+ Kubernetes Concepts**: Master Pods, Deployments, Services, Ingress, Secrets, ConfigMaps, PV/PVC, RBAC, HPA, Cluster Autoscaler, and more
+- **21 Azure Services**: Hands-on experience with AKS, Load Balancer, DNS, ACR, MySQL, Storage, Virtual Networks, Active Directory, DevOps, and more
+
+---
 
 ## Course Modules 
 

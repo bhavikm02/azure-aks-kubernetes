@@ -1,5 +1,95 @@
 # Ingress - SSL
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Cert-Manager Installation"
+        InstallCertMgr[Install cert-manager<br/>via Helm Chart]
+        InstallCertMgr --> CertMgrPods[cert-manager Pods:<br/>cert-manager<br/>cert-manager-webhook<br/>cert-manager-cainjector]
+        InstallCertMgr --> CRDs[Custom Resource Definitions:<br/>Certificate<br/>Issuer<br/>ClusterIssuer]
+    end
+    
+    subgraph "ClusterIssuer Configuration"
+        ClusterIssuer[ClusterIssuer Resource<br/>letsencrypt-prod]
+        ClusterIssuer --> ACMEServer[ACME Server:<br/>https://acme-v02.api.letsencrypt.org]
+        ClusterIssuer --> Email[Email: your-email@domain.com<br/>For cert expiry notifications]
+        ClusterIssuer --> HTTPChallenge[Challenge Type:<br/>HTTP-01 via Ingress]
+    end
+    
+    subgraph "Application with SSL Ingress"
+        AppDeploy[Application Deployment<br/>+ ClusterIP Service]
+        
+        IngressSSL[Ingress Resource<br/>with TLS config]
+        IngressSSL --> TLSSection[tls:<br/>  hosts: app1.kubeoncloud.com<br/>  secretName: app1-secret-tls]
+        IngressSSL --> Annotations[annotations:<br/>cert-manager.io/cluster-issuer:<br/>letsencrypt-prod]
+    end
+    
+    subgraph "Certificate Issuance Flow"
+        ApplyIngress[kubectl apply Ingress]
+        ApplyIngress --> CertMgrDetects[cert-manager detects<br/>TLS annotation]
+        CertMgrDetects --> CreateCertResource[Creates Certificate resource<br/>automatically]
+        
+        CreateCertResource --> RequestCert[Request certificate from<br/>Let's Encrypt]
+        RequestCert --> ACMEChallenge[Let's Encrypt sends<br/>HTTP-01 challenge]
+        ACMEChallenge --> TempIngress[cert-manager creates<br/>temporary Ingress rule]
+        TempIngress --> ChallengePath[/.well-known/acme-challenge/<br/>token]
+        
+        ACMEChallenge --> LetsEncryptVerify[Let's Encrypt verifies:<br/>http://app1.kubeoncloud.com<br/>/.well-known/acme-challenge/token]
+        LetsEncryptVerify --> ChallengeSuccess{Challenge<br/>Success?}
+        ChallengeSuccess -->|Yes| IssueCert[Issue SSL Certificate]
+        ChallengeSuccess -->|No| RetryChallenge[Retry or fail]
+        
+        IssueCert --> StoreCert[Store cert in Secret:<br/>app1-secret-tls]
+        StoreCert --> IngressUsesSecret[Ingress uses Secret<br/>for TLS termination]
+    end
+    
+    subgraph "HTTPS Traffic Flow"
+        UserHTTPS[User: https://app1.kubeoncloud.com]
+        UserHTTPS --> TLSHandshake[TLS Handshake]
+        TLSHandshake --> IngressController[NGINX Ingress Controller<br/>presents certificate]
+        IngressController --> ValidateCert[Browser validates cert:<br/>✓ Trusted CA Let's Encrypt<br/>✓ Domain matches<br/>✓ Not expired]
+        ValidateCert --> SecureConnection[Encrypted Connection<br/>Established]
+        SecureConnection --> RouteApp[Route to backend app]
+        RouteApp --> AppDeploy
+    end
+    
+    subgraph "Certificate Renewal"
+        CertExpiry[Certificate Valid: 90 days]
+        CertExpiry --> AutoRenew[cert-manager auto-renews<br/>at 30 days before expiry]
+        AutoRenew --> NewChallenge[New HTTP-01 challenge]
+        NewChallenge --> UpdateSecret[Update Secret with<br/>new certificate]
+        UpdateSecret --> ZeroDowntime[Zero downtime renewal]
+    end
+    
+    subgraph "SSL Redirect"
+        HTTPRequest[User: http://app1.kubeoncloud.com]
+        HTTPRequest --> HTTPIngress[Ingress annotation:<br/>nginx.ingress.kubernetes.io/<br/>ssl-redirect: "true"]
+        HTTPIngress --> Redirect301[HTTP 301 Redirect]
+        Redirect301 --> RedirectHTTPS[→ https://app1.kubeoncloud.com]
+    end
+    
+    style CertMgrDetects fill:#9370db
+    style IssueCert fill:#28a745
+    style SecureConnection fill:#28a745
+    style IngressController fill:#326ce5
+```
+
+### Understanding the Diagram
+
+- **cert-manager**: Kubernetes add-on that **automates SSL/TLS certificate management**, including issuance, renewal, and storage
+- **ClusterIssuer**: Cluster-wide resource defining how to obtain certificates from **Let's Encrypt ACME server** (free SSL certificates)
+- **Let's Encrypt**: Free, automated, and open **Certificate Authority** providing SSL/TLS certificates trusted by all major browsers
+- **HTTP-01 Challenge**: Let's Encrypt verifies domain ownership by requesting a file at **/.well-known/acme-challenge/** via HTTP
+- **Automatic Certificate Creation**: cert-manager watches Ingress resources with TLS config and **automatically requests certificates** from Let's Encrypt
+- **Certificate Storage**: Issued certificates are stored in Kubernetes **Secrets** (type: kubernetes.io/tls), containing cert and private key
+- **TLS Termination**: NGINX Ingress Controller **terminates TLS** (decrypts HTTPS), then forwards unencrypted traffic to backend Pods
+- **90-Day Validity**: Let's Encrypt certificates are valid for **90 days**, but cert-manager **auto-renews at 60 days**, ensuring continuous protection
+- **Zero-Downtime Renewal**: Certificate renewal happens **automatically in the background** without service interruption or manual intervention
+- **SSL Redirect**: Annotation **ssl-redirect: "true"** automatically redirects HTTP traffic to HTTPS, ensuring all traffic is encrypted
+
+---
+
 ## Step-01: Introduction
 - Implement SSL using Lets Encrypt
 

@@ -1,5 +1,96 @@
 # Deploy UserManagement Web Application with MySQL Database
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "MySQL Backend with Persistent Storage"
+        StorageStack[Storage Stack]
+        StorageStack --> SC[Storage Class]
+        StorageStack --> PVC[Persistent Volume Claim]
+        StorageStack --> PV[Persistent Volume]
+        StorageStack --> AzureDisk[Azure Managed Disk]
+        
+        MySQLDeploy[MySQL Deployment]
+        MySQLDeploy --> MySQLPod[MySQL Pod]
+        MySQLPod --> MySQLVolume[Volume Mount:<br/>/var/lib/mysql]
+        MySQLVolume --> PVC
+        
+        MySQLPod --> ClusterIPSvc[ClusterIP Service<br/>mysql:3306]
+    end
+    
+    subgraph "User Management Web App"
+        WebAppDeploy[User Mgmt Web App Deployment<br/>Spring Boot Application]
+        WebAppDeploy --> WebAppPods[Multiple Web App Pods<br/>Scalable]
+        
+        WebAppPods --> EnvVars[Environment Variables:<br/>DB_HOSTNAME: mysql<br/>DB_PORT: 3306<br/>DB_NAME: webappdb<br/>DB_USERNAME: root<br/>DB_PASSWORD: dbpassword11]
+        
+        WebAppPods --> InitContainer[Init Container<br/>Wait for MySQL availability]
+        InitContainer --> CheckMySQL{MySQL<br/>Ready?}
+        CheckMySQL -->|No| WaitRetry[Wait & Retry]
+        WaitRetry --> CheckMySQL
+        CheckMySQL -->|Yes| StartApp[Start Main Container<br/>Spring Boot App]
+        
+        StartApp --> ConnectDB[Connect to MySQL<br/>via ClusterIP Service]
+        ConnectDB --> ClusterIPSvc
+        
+        WebAppDeploy --> LBService[LoadBalancer Service<br/>External Access]
+    end
+    
+    subgraph "Application Initialization"
+        AppStart[Spring Boot Startup]
+        AppStart --> SchemaCheck[Check if webappdb exists<br/>from ConfigMap]
+        SchemaCheck --> CreateTables[Create user table<br/>JPA auto-creates schema]
+        CreateTables --> ReadyForRequests[App Ready for Requests]
+    end
+    
+    subgraph "User Operations"
+        User[Internet User] --> LBService
+        LBService --> Login[Login:<br/>admin101 / password101]
+        Login --> Operations{User Actions}
+        
+        Operations --> CreateUser[Create New User<br/>POST /api/users]
+        Operations --> ListUsers[List Users<br/>GET /api/users]
+        Operations --> DeleteUser[Delete User<br/>DELETE /api/users/:id]
+        
+        CreateUser --> WriteDB[Write to MySQL<br/>webappdb.user table]
+        ListUsers --> ReadDB[Read from MySQL<br/>webappdb.user table]
+        DeleteUser --> RemoveDB[Remove from MySQL<br/>webappdb.user table]
+        
+        WriteDB --> PersistData[Data persists on<br/>Azure Disk]
+        ReadDB --> PersistData
+        RemoveDB --> PersistData
+    end
+    
+    subgraph "Init Container Purpose"
+        InitPurpose[Why Init Containers?]
+        InitPurpose --> IP1[Problem: Race Condition<br/>Web App starts before MySQL ready]
+        InitPurpose --> IP2[Solution: Init Container waits<br/>for MySQL to be ready]
+        InitPurpose --> IP3[Main container starts only<br/>after init container succeeds]
+        InitPurpose --> IP4[Prevents connection errors<br/>during startup]
+    end
+    
+    style MySQLPod fill:#9370db
+    style WebAppPods fill:#326ce5
+    style LBService fill:#0078d4
+    style PersistData fill:#28a745
+    style InitContainer fill:#ffa500
+```
+
+### Understanding the Diagram
+
+- **Full Stack Application**: Complete web application with **MySQL database backend** and **Spring Boot web frontend**, demonstrating real-world architecture
+- **Environment Variables**: Pass **database connection details** to Spring Boot app, enabling connection to MySQL via Kubernetes **ClusterIP Service** name resolution
+- **Init Container Pattern**: **Waits for MySQL availability** before starting main application container, preventing startup failures due to database unavailability
+- **Race Condition Solution**: Without init container, web app might start **before MySQL is ready**, causing connection errors and Pod crash loops
+- **Init Container Flow**: Runs **before main container**, checks MySQL readiness, **retries on failure**, and main container starts only after success
+- **ClusterIP Service Discovery**: Web app connects to database using service name **"mysql"**, which Kubernetes DNS resolves to ClusterIP automatically
+- **Spring Boot JPA**: Application uses **JPA/Hibernate** to automatically create **user table schema** in webappdb during first startup
+- **RESTful API Operations**: Supports **Create, Read, Delete** operations via REST endpoints (/api/users) for user management
+- **Data Persistence**: All user data written to MySQL is stored on **Azure Managed Disk**, surviving Pod restarts and redeployments
+- **Horizontal Scalability**: Web app can scale to **multiple Pods** (all connecting to same MySQL instance) to handle increased load, while MySQL remains single instance with persistent storage
+
+---
 
 ## Step-01: Introduction
 - We are going to deploy a **User Management Web Application** which will connect to MySQL Database schema **webappdb** during startup.

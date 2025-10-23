@@ -1,5 +1,66 @@
 # Kubernetes  - PODs
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Pod Lifecycle & Operations"
+        Create[kubectl run my-first-pod<br/>--image stacksimplify/kubenginx:1.0.0]
+        
+        Create --> API[Kubernetes API Server]
+        API --> Scheduler[Scheduler assigns Pod to Node]
+        Scheduler --> Node[Worker Node]
+        
+        Node --> Pull[Pull Container Image<br/>from Docker Hub]
+        Pull --> StartContainer[Start Container in Pod]
+        StartContainer --> Running[Pod Status: Running]
+        
+        Running --> Inspect{Pod Operations}
+        
+        Inspect --> GetPods[kubectl get pods<br/>kubectl get pods -o wide]
+        Inspect --> DescribePod[kubectl describe pod<br/>View events & details]
+        Inspect --> Logs[kubectl logs pod-name<br/>View application logs]
+        Inspect --> Exec[kubectl exec -it pod-name<br/>Interactive shell access]
+        
+        Running --> Expose[kubectl expose pod<br/>--type=LoadBalancer]
+        Expose --> LBService[LoadBalancer Service]
+        
+        LBService --> AzureLB[Azure Load Balancer]
+        AzureLB --> PublicIP[Public IP Address]
+        PublicIP --> Internet[Internet Access]
+        
+        Inspect --> Delete[kubectl delete pod]
+        Delete --> Terminated[Pod Terminated]
+    end
+    
+    subgraph "Pod Internal Components"
+        PodStructure[Pod] --> Container1[Container 1<br/>nginx:latest]
+        PodStructure --> Container2[Container 2 Optional<br/>sidecar pattern]
+        PodStructure --> SharedNetwork[Shared Network Namespace<br/>localhost communication]
+        PodStructure --> SharedStorage[Shared Storage Volumes]
+    end
+    
+    style Create fill:#326ce5
+    style Running fill:#28a745
+    style AzureLB fill:#0078d4
+    style Internet fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Pod Creation**: Use **kubectl run** command to imperatively create a **single Pod** with a specified **container image** from Docker Hub
+- **Kubernetes Scheduler**: The **scheduler** automatically assigns the Pod to an available **worker node** based on resource availability and constraints
+- **Image Pull Process**: Worker node's **container runtime** pulls the specified **Docker image** from the registry before starting the container
+- **Pod Running State**: Once container starts successfully, Pod enters **Running** state and application becomes available on the node
+- **Inspection Commands**: Use **kubectl get pods** for status overview, **kubectl describe** for detailed events, and **kubectl logs** for application output
+- **Interactive Access**: **kubectl exec -it** provides **shell access** inside running containers for debugging and troubleshooting
+- **Service Exposure**: **kubectl expose** creates a **LoadBalancer Service** that provisions an **Azure Load Balancer** with external access
+- **Public IP Assignment**: Azure automatically assigns a **public IP address** to the load balancer, enabling **internet traffic** to reach your Pod
+- **Multi-Container Pods**: Pods can contain **multiple containers** sharing the same **network namespace** and **storage volumes** (sidecar pattern)
+- **Pod Lifecycle Management**: Pods can be **deleted** using **kubectl delete**, which terminates all containers and releases resources
+
+---
+
 ## Step-01: PODs Introduction
 - What is a POD ?
 - What is a Multi-Container POD?

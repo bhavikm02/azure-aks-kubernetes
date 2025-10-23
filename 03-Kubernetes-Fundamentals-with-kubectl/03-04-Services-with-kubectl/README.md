@@ -1,5 +1,82 @@
 # Kubernetes - Services
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Backend - ClusterIP Service"
+        BackendDeploy[Backend Deployment<br/>Spring Boot REST API<br/>Port 8080]
+        BackendDeploy --> BackendPods[3 Backend Pods<br/>10.244.1.10<br/>10.244.2.15<br/>10.244.3.20]
+        
+        CreateClusterIP[kubectl expose deployment<br/>--port=8080<br/>--name=my-backend-service]
+        CreateClusterIP --> ClusterIPSvc[ClusterIP Service<br/>my-backend-service<br/>Internal IP: 10.100.50.25]
+        
+        ClusterIPSvc --> LabelSelector1[Label Selector<br/>Matches Backend Pods]
+        LabelSelector1 --> BackendPods
+        
+        ClusterIPSvc --> InternalOnly[Accessible only within<br/>Kubernetes cluster]
+    end
+    
+    subgraph "Frontend - LoadBalancer Service"
+        FrontendDeploy[Frontend Deployment<br/>Nginx Reverse Proxy<br/>Port 80]
+        FrontendDeploy --> FrontendPods[3 Frontend Pods<br/>proxy_pass to<br/>my-backend-service:8080]
+        
+        FrontendPods --> CallsBackend[Internal DNS Resolution<br/>my-backend-service → 10.100.50.25]
+        CallsBackend --> ClusterIPSvc
+        
+        CreateLB[kubectl expose deployment<br/>--type=LoadBalancer<br/>--port=80<br/>--name=my-frontend-service]
+        CreateLB --> LBSvc[LoadBalancer Service<br/>my-frontend-service]
+        
+        LBSvc --> LabelSelector2[Label Selector<br/>Matches Frontend Pods]
+        LabelSelector2 --> FrontendPods
+        
+        LBSvc --> AzureLB[Azure Load Balancer<br/>Public IP: 20.112.45.89]
+    end
+    
+    subgraph "Traffic Flow - End to End"
+        User[Internet User] --> UserRequest[http://20.112.45.89/hello]
+        UserRequest --> AzureLB
+        AzureLB --> RouteFrontend[Route to Frontend Pod]
+        RouteFrontend --> FrontendPods
+        FrontendPods --> NginxProxy[Nginx Reverse Proxy<br/>proxy_pass]
+        NginxProxy --> BackendCall[http://my-backend-service:8080/hello]
+        BackendCall --> ClusterIPSvc
+        ClusterIPSvc --> RouteBackend[Route to Backend Pod]
+        RouteBackend --> BackendPods
+        BackendPods --> Response[JSON Response]
+        Response --> ReturnPath[Return through<br/>Frontend to User]
+    end
+    
+    subgraph "Service Types Comparison"
+        ServiceTypes[Service Types]
+        ServiceTypes --> ST1[ClusterIP: Internal only<br/>Default type]
+        ServiceTypes --> ST2[NodePort: Accessible via<br/>Node IP:Port]
+        ServiceTypes --> ST3[LoadBalancer: External<br/>Cloud provider LB]
+        ServiceTypes --> ST4[ExternalName: DNS CNAME<br/>External service]
+        ServiceTypes --> ST5[Ingress: HTTP/HTTPS<br/>Path-based routing]
+    end
+    
+    style ClusterIPSvc fill:#9370db
+    style LBSvc fill:#0078d4
+    style AzureLB fill:#0078d4
+    style Response fill:#28a745
+```
+
+### Understanding the Diagram
+
+- **ClusterIP Service**: Default service type providing **internal-only access** with a **stable virtual IP** that load balances across backend Pods
+- **Backend Architecture**: Spring Boot **REST API** deployed as a **Deployment** exposed via **ClusterIP Service** for internal cluster communication
+- **Label Selectors**: Services use **label selectors** to dynamically discover and route traffic to **matching Pods**, updating automatically as Pods scale
+- **Internal DNS**: Kubernetes provides **built-in DNS** so services can be accessed by **name** (my-backend-service) instead of IP addresses
+- **Frontend Reverse Proxy**: Nginx acts as a **reverse proxy** that forwards requests from external users to the **internal backend service**
+- **LoadBalancer Service**: Exposes frontend to **internet** by provisioning an **Azure Load Balancer** with a **public IP address**
+- **Traffic Flow**: User requests flow **Internet → Azure LB → Frontend Pod → Internal Service → Backend Pod**, with responses following the reverse path
+- **Service Discovery**: Frontend Pods use **service name** (my-backend-service:8080) which Kubernetes DNS resolves to the **ClusterIP** automatically
+- **Scaling Backend**: Use **kubectl scale** to increase backend replicas to **10 Pods**, and ClusterIP Service automatically load balances across all instances
+- **Service Types**: Kubernetes offers **5 service types** - ClusterIP (internal), NodePort (node-level), LoadBalancer (external), ExternalName (DNS), and Ingress (HTTP routing)
+
+---
+
 ## Step-01: Introduction to Services
 - **Service Types**
   1. ClusterIp

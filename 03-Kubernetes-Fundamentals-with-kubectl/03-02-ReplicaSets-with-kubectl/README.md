@@ -1,5 +1,71 @@
 # Kubernetes - ReplicaSets
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "ReplicaSet Creation & Management"
+        Create[kubectl create -f replicaset-demo.yml]
+        Create --> RSManifest[ReplicaSet Manifest<br/>replicas: 3<br/>selector: matchLabels]
+        
+        RSManifest --> RSController[ReplicaSet Controller]
+        RSController --> DesiredState[Desired State: 3 Pods]
+        
+        DesiredState --> Pod1[Pod 1<br/>my-helloworld-rs-abc12]
+        DesiredState --> Pod2[Pod 2<br/>my-helloworld-rs-def34]
+        DesiredState --> Pod3[Pod 3<br/>my-helloworld-rs-ghi56]
+        
+        Pod1 --> Node1[Worker Node 1]
+        Pod2 --> Node2[Worker Node 2]
+        Pod3 --> Node3[Worker Node 1]
+    end
+    
+    subgraph "High Availability Testing"
+        Monitor[ReplicaSet Monitoring] --> Watch[Watch Current State]
+        Watch --> PodDeleted[kubectl delete pod<br/>Pod 2 Deleted]
+        PodDeleted --> Detect[ReplicaSet Detects<br/>Current: 2, Desired: 3]
+        Detect --> AutoCreate[Auto-Create New Pod]
+        AutoCreate --> Pod2New[Pod 2 New<br/>my-helloworld-rs-xyz99]
+        Pod2New --> Restored[State Restored: 3 Pods]
+    end
+    
+    subgraph "Scaling Operations"
+        Scale[Scaling ReplicaSet] --> EditManifest[Update replicas: 3 → 6]
+        EditManifest --> ReplaceCmd[kubectl replace -f<br/>replicaset-demo.yml]
+        ReplaceCmd --> NewPods[Create 3 Additional Pods]
+        NewPods --> ScaledOut[Total: 6 Pods Running]
+    end
+    
+    subgraph "Service Exposure"
+        ExposeRS[kubectl expose rs<br/>--type=LoadBalancer] --> LBService[LoadBalancer Service]
+        LBService --> AzureLB[Azure Load Balancer]
+        AzureLB --> TrafficDist[Traffic Distribution<br/>Across All Pods]
+        Pod1 --> TrafficDist
+        Pod2 --> TrafficDist
+        Pod3 --> TrafficDist
+    end
+    
+    style RSController fill:#326ce5
+    style Restored fill:#28a745
+    style ScaledOut fill:#28a745
+    style AzureLB fill:#0078d4
+```
+
+### Understanding the Diagram
+
+- **ReplicaSet Manifest**: Define **desired state** with **replica count** and **label selectors** to identify which Pods the ReplicaSet manages
+- **ReplicaSet Controller**: Continuously monitors the **current state** vs **desired state** and takes corrective actions to maintain the specified number of replicas
+- **Pod Distribution**: ReplicaSet creates multiple **Pod replicas** distributed across available **worker nodes** for high availability
+- **Automatic Recovery**: If a Pod is **deleted or fails**, the ReplicaSet **automatically creates a replacement** to maintain the desired replica count
+- **Label-Based Ownership**: ReplicaSet uses **label selectors** and **ownerReferences** to track which Pods it manages and controls
+- **Horizontal Scaling**: Easily scale applications by **updating the replicas field** in the manifest and applying changes with **kubectl replace**
+- **Seamless Scale-Out**: Scaling from **3 to 6 replicas** creates **3 additional Pods** instantly without downtime or disruption
+- **Load Balancer Integration**: **kubectl expose** creates a Service that distributes incoming traffic **evenly across all Pod replicas**
+- **Azure Load Balancer**: Service type **LoadBalancer** provisions an **Azure Load Balancer** with automatic **traffic distribution** and health checks
+- **High Availability Architecture**: Multiple replicas across different nodes ensures application remains available even if individual Pods or nodes fail
+
+---
+
 ## Step-01: Introduction to ReplicaSets
 - What are ReplicaSets?
 - What is the advantage of using ReplicaSets?

@@ -1,5 +1,71 @@
 # Create AKS Cluster
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Azure Portal"
+        Portal[Azure Portal] --> CreateAKS[Create AKS Cluster]
+        CreateAKS --> Basics[Configure Basics<br/>Resource Group, Region, K8s Version]
+        Basics --> NodePools[Configure Node Pools<br/>Autoscale: 2-5 nodes]
+        NodePools --> Networking[Configure Networking<br/>Azure CNI Overlay]
+        Networking --> Review[Review + Create]
+        Review --> Deploy[Deploy Cluster]
+    end
+    
+    subgraph "Azure Resources Created"
+        Deploy --> RG1[Resource Group: aks-rg1]
+        Deploy --> RG2[Node Resource Group: MC_*]
+        RG2 --> VMSS[Virtual Machine Scale Sets]
+        RG2 --> VNet[Virtual Network]
+        RG2 --> LB[Standard Load Balancer]
+        RG2 --> PublicIP[Public IP Addresses]
+    end
+    
+    subgraph "Local Development Setup"
+        Deploy --> CloudShell[Azure Cloud Shell]
+        Deploy --> LocalSetup[Local Desktop Setup]
+        
+        CloudShell --> GetCreds1[az aks get-credentials]
+        LocalSetup --> InstallAzCLI[Install Azure CLI]
+        InstallAzCLI --> InstallKubectl[Install kubectl]
+        InstallKubectl --> AzLogin[az login]
+        AzLogin --> GetCreds2[az aks get-credentials]
+    end
+    
+    subgraph "Verification & Testing"
+        GetCreds1 --> KubectlTest[kubectl get nodes]
+        GetCreds2 --> KubectlTest
+        KubectlTest --> DeployApp[Deploy Sample App]
+        DeployApp --> CreateDeploy[Create Deployment]
+        CreateDeploy --> CreateSvc[Create LoadBalancer Service]
+        CreateSvc --> TestApp[Test Application via Public IP]
+    end
+    
+    TestApp --> Success[✓ AKS Cluster Ready]
+    
+    style Portal fill:#0078d4
+    style Deploy fill:#28a745
+    style Success fill:#ffd700
+    style VMSS fill:#e1f5ff
+    style LB fill:#e1f5ff
+```
+
+### Understanding the Diagram
+
+- **Azure Portal Workflow**: Create your **AKS cluster** through the **Azure Portal UI** by configuring **basics, node pools, networking, and integrations** in a step-by-step wizard
+- **Resource Groups**: AKS creates **two resource groups** - your main **aks-rg1** and an auto-managed **MC_*** group containing all infrastructure resources
+- **Node Pool Configuration**: Set up **autoscaling** with a minimum of **2 nodes** and maximum of **5 nodes** using **Standard D2ls v6** instances for cost-effective learning
+- **Networking Stack**: Uses **Azure CNI Overlay** for pod networking with a dedicated **Virtual Network**, **Standard Load Balancer**, and **public IP addresses**
+- **Dual Access Methods**: Connect to your cluster via **Azure Cloud Shell** (browser-based) or **local desktop** (requires Azure CLI and kubectl installation)
+- **Credential Configuration**: Use **az aks get-credentials** command to download the **kubeconfig file** and configure **kubectl** to communicate with your cluster
+- **Verification Steps**: Run **kubectl get nodes** to verify **worker nodes** are in **Ready** state and confirm cluster connectivity
+- **Sample Deployment**: Test the cluster by deploying a **sample application** with both a **Deployment** and **LoadBalancer Service** to verify end-to-end functionality
+- **Infrastructure Components**: Behind the scenes, Azure provisions **Virtual Machine Scale Sets** for nodes, **load balancers** for traffic distribution, and **networking infrastructure**
+- **Production Ready**: Once verified, your cluster is ready for deploying **production workloads** with features like **autoscaling**, **monitoring**, and **security** enabled
+
+---
+
 ## Step-01: Introduction
 - Create Azure AKS Cluster
 - Connect to Azure AKS Cluster using Azure Cloud Shell

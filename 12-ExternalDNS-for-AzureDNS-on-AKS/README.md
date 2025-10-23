@@ -1,5 +1,91 @@
 # Kubernetes ExternalDNS to create Record Sets in Azure DNS from AKS
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "ExternalDNS Setup"
+        MSI[Azure Managed Service Identity<br/>Created for AKS VMSS]
+        MSI --> Permissions[Assign Permissions:<br/>DNS Zone Contributor<br/>on dns-zones resource group]
+        
+        ConfigFile[azure.json ConfigMap<br/>tenantId, subscriptionId<br/>resourceGroup: dns-zones<br/>useManagedIdentityExtension: true]
+        
+        ExternalDNSDeploy[ExternalDNS Deployment<br/>bitnami/external-dns image]
+        ExternalDNSDeploy --> ServiceAccount[ServiceAccount: external-dns<br/>with RBAC permissions]
+        ServiceAccount --> ClusterRole[ClusterRole: Read Services<br/>Ingress, Nodes]
+    end
+    
+    subgraph "Application Deployment"
+        App[Application Deployment<br/>with Service or Ingress]
+        App --> Annotation[Annotation:<br/>external-dns.alpha.kubernetes.io/hostname<br/>= app1.kubeoncloud.com]
+    end
+    
+    subgraph "ExternalDNS Workflow"
+        ExternalDNSPod[ExternalDNS Pod Running]
+        ExternalDNSPod --> Watch[Watch Kubernetes API<br/>for Services & Ingress]
+        
+        Watch --> DetectAnnotation{Detect<br/>hostname<br/>annotation?}
+        DetectAnnotation -->|Yes| ExtractHostname[Extract hostname:<br/>app1.kubeoncloud.com]
+        DetectAnnotation -->|No| Skip[Skip - No DNS needed]
+        
+        ExtractHostname --> GetIP[Get Service/Ingress<br/>External IP:<br/>20.112.45.89]
+        GetIP --> AzureDNSAPI[Call Azure DNS API<br/>using MSI credentials]
+    end
+    
+    subgraph "Azure DNS Zone"
+        AzureDNSAPI --> CheckRecord{DNS Record<br/>Exists?}
+        CheckRecord -->|No| CreateRecord[Create A Record:<br/>app1.kubeoncloud.com → 20.112.45.89]
+        CheckRecord -->|Yes - Different IP| UpdateRecord[Update A Record:<br/>to new IP]
+        CheckRecord -->|Yes - Same IP| NoAction[No action needed]
+        
+        CreateRecord --> DNSZone[Azure DNS Zone:<br/>kubeoncloud.com]
+        UpdateRecord --> DNSZone
+        
+        DNSZone --> RecordSets[Record Sets:<br/>A: app1.kubeoncloud.com<br/>A: app2.kubeoncloud.com<br/>A: usermgmt.kubeoncloud.com]
+    end
+    
+    subgraph "DNS Resolution"
+        User[Internet User] --> DNSQuery[Query: app1.kubeoncloud.com]
+        DNSQuery --> AzureNS[Azure Nameservers]
+        AzureNS --> DNSZone
+        DNSZone --> ReturnIP[Return IP: 20.112.45.89]
+        ReturnIP --> UserAccess[User accesses application]
+    end
+    
+    subgraph "Service Lifecycle Management"
+        Lifecycle[Lifecycle Events]
+        Lifecycle --> ServiceCreated[Service Created<br/>→ Create DNS Record]
+        Lifecycle --> ServiceUpdated[Service IP Changed<br/>→ Update DNS Record]
+        Lifecycle --> ServiceDeleted[Service Deleted<br/>→ Delete DNS Record]
+    end
+    
+    subgraph "MSI vs Service Principal"
+        Comparison[Authentication Methods]
+        Comparison --> MSIMethod[MSI Managed Identity:<br/>✓ No password management<br/>✓ Automatic credential rotation<br/>✓ Azure-native security<br/>✓ Recommended approach]
+        Comparison --> SPMethod[Service Principal:<br/>✓ Manual credential management<br/>✗ Password/secret expiration<br/>✗ Security overhead]
+    end
+    
+    style ExternalDNSPod fill:#326ce5
+    style DNSZone fill:#0078d4
+    style CreateRecord fill:#28a745
+    style MSIMethod fill:#28a745
+```
+
+### Understanding the Diagram
+
+- **ExternalDNS Purpose**: Automatically creates, updates, and deletes **DNS records** in Azure DNS based on **Kubernetes Services** and **Ingress resources**
+- **Managed Service Identity (MSI)**: Azure-native authentication method that eliminates **password management** and provides **automatic credential rotation**
+- **DNS Zone Contributor**: ExternalDNS needs **DNS Zone Contributor** role on the resource group containing Azure DNS Zones to manage records
+- **Hostname Annotation**: Add **external-dns.alpha.kubernetes.io/hostname** annotation to Services/Ingress to trigger automatic DNS record creation
+- **Watch & Sync**: ExternalDNS **continuously watches** Kubernetes API for annotated Services/Ingress and **synchronizes** with Azure DNS
+- **Automatic Record Management**: When Service gets external IP, ExternalDNS **creates A record**; when IP changes, it **updates**; when deleted, it **removes** the record
+- **azure.json ConfigMap**: Contains Azure **tenant ID, subscription ID, resource group** and MSI configuration for Azure API authentication
+- **RBAC Permissions**: ServiceAccount with **ClusterRole** allows ExternalDNS to read Services, Ingress, Nodes from Kubernetes API
+- **Lifecycle Automation**: Handles complete **DNS lifecycle** - no manual DNS record management needed for Kubernetes workloads
+- **Multiple Records**: Single ExternalDNS deployment manages **all annotated Services** across all namespaces, creating multiple DNS records as needed
+
+---
+
 ## Step-01: Introduction
 - Create External DNS Manifest
 - Provide Access to DNZ Zones using **Azure Managed Service Identity** for External DNS pod to create **Record Sets** in Azure DNS Zones

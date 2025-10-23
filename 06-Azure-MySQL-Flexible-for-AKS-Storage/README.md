@@ -1,5 +1,94 @@
 # User Azure Database for MySQL Flexible for AKS Workloads
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Problems with MySQL Pod + Azure Disk"
+        Problems[Issues with Pod-based MySQL]
+        Problems --> P1[Single Point of Failure<br/>Pod crash = Downtime]
+        Problems --> P2[Manual Scaling<br/>No auto-scaling]
+        Problems --> P3[Manual Backups<br/>Complex setup]
+        Problems --> P4[Limited HA<br/>No multi-zone replica]
+        Problems --> P5[Maintenance Overhead<br/>Patching, updates]
+    end
+    
+    subgraph "Azure MySQL Flexible Server Solution"
+        AzureMySQL[Azure Database for MySQL<br/>Flexible Server]
+        AzureMySQL --> Feature1[Built-in High Availability<br/>Zone-redundant]
+        AzureMySQL --> Feature2[Automatic Backups<br/>Point-in-time restore]
+        AzureMySQL --> Feature3[Auto-scaling<br/>Compute & storage]
+        AzureMySQL --> Feature4[Managed Patching<br/>Azure handles updates]
+        AzureMySQL --> Feature5[Enterprise Security<br/>SSL, Firewall, VNet]
+    end
+    
+    subgraph "Azure MySQL Setup"
+        CreateDB[Create MySQL Flexible Server<br/>akswebappdb201.mysql.database.azure.com]
+        CreateDB --> DBConfig[Configuration:<br/>MySQL 8.0<br/>dbadmin user<br/>Public access enabled]
+        DBConfig --> FirewallRule[Firewall Rule:<br/>Allow Azure services]
+        DBConfig --> SecurityParam[require_secure_transport: OFF<br/>For development]
+        
+        FirewallRule --> CreateSchema[Create Database:<br/>webappdb]
+    end
+    
+    subgraph "Kubernetes Integration via ExternalName"
+        ExternalNameSvc[01-MySQL-externalName-Service.yml<br/>kind: Service<br/>type: ExternalName]
+        
+        ExternalNameSvc --> SvcSpec[spec:<br/>  type: ExternalName<br/>  externalName:<br/>    akswebappdb201.mysql.database.azure.com]
+        
+        SvcSpec --> DNS[Kubernetes DNS<br/>mysql → External FQDN]
+    end
+    
+    subgraph "Web App Deployment"
+        WebAppDeploy[02-UserMgmtWebApp-Deployment.yml<br/>Spring Boot Application]
+        
+        WebAppDeploy --> WebAppEnv[Environment Variables:<br/>DB_HOSTNAME: mysql<br/>DB_USERNAME: dbadmin<br/>DB_PASSWORD: Redhat1449<br/>DB_NAME: webappdb]
+        
+        WebAppEnv --> ConnectDB[App connects to "mysql"<br/>Resolves to Azure MySQL FQDN]
+        ConnectDB --> DNS
+        DNS --> AzureMySQL
+        
+        WebAppDeploy --> LBSvc[LoadBalancer Service<br/>External Access]
+    end
+    
+    subgraph "Traffic Flow"
+        User[Internet User] --> WebAppLB[Load Balancer<br/>Public IP]
+        WebAppLB --> WebAppPod[Web App Pod]
+        WebAppPod --> ExternalNameSvc
+        ExternalNameSvc --> InternetEgress[Internet Egress<br/>from AKS]
+        InternetEgress --> AzureMySQL
+        AzureMySQL --> QueryResponse[Query Response]
+    end
+    
+    subgraph "ExternalName Service Benefits"
+        Benefits[Why ExternalName?]
+        Benefits --> B1[No code changes<br/>Still uses "mysql" hostname]
+        Benefits --> B2[Easy migration<br/>Pod MySQL → Azure MySQL]
+        Benefits --> B3[Service abstraction<br/>Change backend easily]
+        Benefits --> B4[Consistent naming<br/>Dev, staging, prod]
+    end
+    
+    style Problems fill:#ff6b6b
+    style AzureMySQL fill:#0078d4
+    style ExternalNameSvc fill:#9370db
+    style Benefits fill:#28a745
+```
+
+### Understanding the Diagram
+
+- **Pod MySQL Limitations**: Running MySQL as a **Pod with Azure Disk** lacks **built-in HA**, **automatic backups**, and requires **manual operational overhead**
+- **Azure MySQL Flexible Server**: **Fully managed** database service with **automatic backups**, **high availability**, **security**, and **auto-scaling** capabilities
+- **Zone-Redundant HA**: Azure MySQL can deploy **replicas across availability zones** for automatic failover during zone failures
+- **Firewall Configuration**: Setting **Allow Azure services** permits AKS Pods to connect to MySQL without exposing database to entire internet
+- **require_secure_transport OFF**: Disables SSL requirement for **development/testing**; **enable SSL in production** for encrypted connections
+- **ExternalName Service**: Special service type that creates a **DNS CNAME record** mapping internal service name to external FQDN
+- **No IP Address**: ExternalName Services have **no ClusterIP**; they return the external FQDN directly via Kubernetes DNS
+- **Seamless Migration**: Applications continue using **"mysql" hostname**; Kubernetes DNS resolves it to **Azure MySQL FQDN** automatically
+- **Environment Variable Update**: Change **DB_USERNAME** from `root` to `dbadmin` (Azure MySQL admin user) and update **DB_PASSWORD** accordingly
+- **Cost vs Capability Trade-off**: Azure MySQL **costs more** than Pod + Disk but provides **enterprise features**, **reduced ops burden**, and **better reliability**
+
+---
+
 ## Step-01: Introduction
 - What are the problems with MySQL Pod & Azure Disks? 
 - How we are going to solve them using Azure Database for MySQL Flexible?

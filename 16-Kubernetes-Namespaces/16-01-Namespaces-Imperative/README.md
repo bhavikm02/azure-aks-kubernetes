@@ -4,6 +4,93 @@ description: Understand Kubernetes Namespace basics on Azure Kubernetes Service 
 ---
 # Kubernetes Namespaces - Imperative using kubectl
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Kubernetes Cluster Namespaces"
+        Cluster[AKS Cluster]
+        Cluster --> DefaultNS[default namespace<br/>Pre-existing]
+        Cluster --> SystemNS[kube-system<br/>K8s system components]
+        Cluster --> PublicNS[kube-public<br/>Public resources]
+        Cluster --> CustomNS[Custom Namespaces<br/>Created by users]
+    end
+    
+    subgraph "Imperative Namespace Creation"
+        CreateCmd[kubectl create namespace]
+        CreateCmd --> Dev1NS[Create dev1 namespace<br/>kubectl create namespace dev1]
+        CreateCmd --> Dev2NS[Create dev2 namespace<br/>kubectl create namespace dev2]
+        
+        ListCmd[kubectl get ns<br/>List all namespaces]
+        Dev1NS --> ListCmd
+        Dev2NS --> ListCmd
+    end
+    
+    subgraph "Deploy Applications to Multiple Namespaces"
+        KubeManifests[kube-manifests/<br/>Deployment, Service, Ingress]
+        
+        KubeManifests --> DeployDefault[kubectl apply -f kube-manifests/<br/>Deploy to default namespace]
+        KubeManifests --> DeployDev1[kubectl apply -f kube-manifests/ -n dev1<br/>Deploy to dev1 namespace]
+        KubeManifests --> DeployDev2[kubectl apply -f kube-manifests/ -n dev2<br/>Deploy to dev2 namespace]
+        
+        DeployDefault --> AppDefault[App in default namespace<br/>Separate resources]
+        DeployDev1 --> AppDev1[App in dev1 namespace<br/>Isolated resources]
+        DeployDev2 --> AppDev2[App in dev2 namespace<br/>Isolated resources]
+    end
+    
+    subgraph "Resource Isolation"
+        AppDefault --> LBDefault[LoadBalancer Service<br/>Public IP: 20.x.x.1]
+        AppDev1 --> LBDev1[LoadBalancer Service<br/>Public IP: 20.x.x.2]
+        AppDev2 --> LBDev2[LoadBalancer Service<br/>Public IP: 20.x.x.3]
+        
+        Isolation[Each namespace has:<br/>✓ Own resources<br/>✓ Own services<br/>✓ Own public IPs<br/>✓ Isolated environment]
+    end
+    
+    subgraph "Access & Verification"
+        GetAll[kubectl get all]
+        GetAll --> GetDefault[kubectl get all<br/>Lists default namespace]
+        GetAll --> GetDev1[kubectl get all -n dev1<br/>Lists dev1 namespace]
+        GetAll --> GetDev2[kubectl get all -n dev2<br/>Lists dev2 namespace]
+        
+        GetSvc[kubectl get svc -n dev1<br/>Get services in namespace]
+        GetSvc --> AccessApp[Access: http://Public-IP/app1/index.html]
+    end
+    
+    subgraph "Clean-Up Workflow"
+        DeleteNS[kubectl delete ns dev1<br/>kubectl delete ns dev2]
+        DeleteNS --> CascadeDelete[Cascading Delete:<br/>All resources in namespace deleted<br/>Pods, Services, Deployments, etc.]
+        
+        DefaultCleanup[kubectl delete -f kube-manifests/<br/>Delete from default namespace]
+        DefaultCleanup --> KeepDefault[❌ NEVER delete default namespace<br/>k8s default service lives there]
+    end
+    
+    Dev1NS --> DeployDev1
+    Dev2NS --> DeployDev2
+    
+    style CreateCmd fill:#326ce5
+    style Dev1NS fill:#28a745
+    style Dev2NS fill:#28a745
+    style LBDefault fill:#0078d4
+    style LBDev1 fill:#0078d4
+    style LBDev2 fill:#0078d4
+    style CascadeDelete fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Imperative Approach**: Use **kubectl create namespace** commands to create namespaces **on-the-fly** without YAML files, perfect for quick testing and learning Kubernetes namespace fundamentals
+- **Pre-existing Namespaces**: Every cluster starts with **default** (user workloads), **kube-system** (control plane components), **kube-public** (publicly accessible resources), and **kube-node-lease** namespaces
+- **Multiple Environment Isolation**: Create separate namespaces like **dev1** and **dev2** to simulate different **environments** (dev, staging, prod) within the same AKS cluster for resource segregation
+- **Namespace-Specific Deployment**: Deploy identical manifests to multiple namespaces using the **-n flag** (kubectl apply -f kube-manifests/ -n dev1), creating **isolated copies** of applications
+- **Resource Independence**: Each namespace gets its own **LoadBalancer services** with **separate public IPs**, ensuring applications in different namespaces are completely **isolated** and independently accessible
+- **Default Namespace Behavior**: When no namespace is specified with **-n flag**, kubectl commands operate on the **default namespace** automatically, making it the implicit target for operations
+- **List Resources by Namespace**: Use **kubectl get all -n namespace-name** to view resources in specific namespaces, or **kubectl get all --all-namespaces** to view resources across **all namespaces**
+- **Cascading Deletion**: Deleting a namespace with **kubectl delete ns** automatically deletes **all resources** within it (pods, services, deployments, etc.), providing an easy cleanup mechanism
+- **Default Namespace Protection**: **Never delete** the **default namespace** as it contains the **kubernetes default service** (cluster internal DNS) required for cluster operations
+- **Use Case**: Namespaces enable **multi-tenancy**, **team separation**, **environment isolation** (dev/test/prod), and **resource quotas** to prevent one team from consuming all cluster resources
+
+---
+
 ## Step-01: Introduction
 - Namespaces allow to split-up resources into different groups.
 - Resource names should be unique in a namespace

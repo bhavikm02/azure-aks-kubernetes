@@ -1,5 +1,113 @@
 # Understand Terraform Language Basics
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Terraform Language Syntax"
+        Syntax[Terraform Configuration Language HCL]
+        Syntax --> Blocks[Blocks<br/>resource, variable, output, etc.]
+        Syntax --> Arguments[Arguments<br/>name = value pairs]
+        Syntax --> Expressions[Expressions<br/>Variables, functions, conditionals]
+        Syntax --> Comments[Comments<br/># Single line<br/>/* Multi-line */]
+    end
+    
+    subgraph "Terraform Settings Block"
+        Settings[terraform Block]
+        Settings --> TFVersion[required_version<br/>>= 0.13<br/>Terraform version constraint]
+        Settings --> Providers[required_providers<br/>Define provider sources & versions]
+        Settings --> Backend[backend Configuration<br/>Remote state storage]
+        
+        Providers --> AzureRM[azurerm Provider<br/>source: hashicorp/azurerm<br/>version: ~> 2.0]
+        Providers --> AzureAD[azuread Provider<br/>source: hashicorp/azuread<br/>version: ~> 1.0]
+        Providers --> Random[random Provider<br/>source: hashicorp/random<br/>version: ~> 3.0]
+    end
+    
+    subgraph "Input Variables"
+        Variables[variables.tf]
+        Variables --> VarDef[Variable Definition<br/>variable "region" type = string]
+        VarDef --> VarDefault[default = "Central US"<br/>Optional default value]
+        VarDef --> VarDesc[description = "Azure Region"<br/>Documentation]
+        
+        VarUsage[Variable Usage in Config]
+        VarUsage --> RefVar[Reference: var.region<br/>Use in resource blocks]
+    end
+    
+    subgraph "Output Values"
+        Outputs[outputs.tf]
+        Outputs --> OutputDef[Output Definition<br/>output "resource_group_id"]
+        OutputDef --> OutputValue[value = azurerm_resource_group.rg.id<br/>Resource attribute reference]
+        OutputDef --> OutputDesc[description = "RG ID"<br/>Documentation]
+        
+        OutputUsage[Output Usage]
+        OutputUsage --> TerminalOutput[terraform output<br/>Display values in terminal]
+        OutputUsage --> ModuleOutput[Module outputs<br/>Pass to other modules]
+    end
+    
+    subgraph "Local State vs Remote State"
+        LocalState[Local State]
+        LocalState --> LocalFile[terraform.tfstate<br/>Stored on local disk<br/>❌ No collaboration<br/>❌ No locking]
+        
+        RemoteState[Remote State: Azure Storage]
+        RemoteState --> StorageAccount[Azure Storage Account<br/>terraformstatexlrwdrzs]
+        StorageAccount --> Container[Blob Container<br/>prodtfstate]
+        Container --> StateBlob[terraform.tfstate<br/>✓ Team collaboration<br/>✓ State locking<br/>✓ Encryption]
+    end
+    
+    subgraph "State Migration Process"
+        Migration[Migrate Local → Remote]
+        Migration --> Step1[1. Create Azure Storage<br/>Resource Group + Storage Account]
+        Step1 --> Step2[2. Configure backend in terraform block<br/>Add azurerm backend config]
+        Step2 --> Step3[3. terraform init -migrate-state<br/>Copy local state to remote]
+        Step3 --> Step4[4. Verify state in Azure Portal<br/>Check blob storage]
+    end
+    
+    subgraph "Resource Blocks Example"
+        ResourceBlock[Resource Block Structure]
+        ResourceBlock --> BlockType[Block Type: resource]
+        ResourceBlock --> BlockLabel1[Block Label 1: "azurerm_resource_group"]
+        ResourceBlock --> BlockLabel2[Block Label 2: "aksdev"]
+        ResourceBlock --> BlockBody[Block Body:<br/>name = "aks-rg2-tf"<br/>location = var.region<br/>tags = ]
+    end
+    
+    subgraph "Terraform Workflow with Variables"
+        Workflow[Development Workflow]
+        Workflow --> W1[1. Define variables.tf<br/>Input parameters]
+        Workflow --> W2[2. Define main.tf<br/>Use var.* references]
+        Workflow --> W3[3. Define outputs.tf<br/>Export values]
+        Workflow --> W4[4. terraform plan<br/>Preview with variable values]
+        Workflow --> W5[5. terraform apply<br/>Create resources]
+        Workflow --> W6[6. terraform output<br/>View exported values]
+    end
+    
+    VarDef --> RefVar
+    OutputDef --> TerminalOutput
+    Backend --> RemoteState
+    
+    style Settings fill:#5c4ee5
+    style Variables fill:#326ce5
+    style Outputs fill:#00bcf2
+    style RemoteState fill:#28a745
+    style Migration fill:#ff8c00
+    style ResourceBlock fill:#9370db
+    style StateBlob fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Terraform Language HCL**: Terraform uses **HashiCorp Configuration Language** (HCL) with syntax consisting of **blocks** (resource, variable), **arguments** (name=value), **expressions** (var.region), and **comments**
+- **Terraform Settings Block**: The **terraform** block defines **required Terraform version**, **provider sources** (azurerm, azuread, random), and **backend configuration** for state storage
+- **Provider Configuration**: Specify provider **source** (hashicorp/azurerm) and **version constraints** (~> 2.0 means >= 2.0 and < 3.0), ensuring consistent provider versions across team
+- **Input Variables**: Define in **variables.tf** with **type**, **default value**, and **description**, then reference in configs using **var.variable_name** syntax for parameterization
+- **Output Values**: Define in **outputs.tf** to expose **resource attributes** (IDs, IPs, names) after apply, viewable via **terraform output** command or consumed by other modules
+- **Local vs Remote State**: **Local state** (terraform.tfstate on disk) lacks collaboration features; **remote state** in Azure Storage enables **team collaboration**, **state locking**, and **encryption**
+- **State Migration**: Move from local to remote state by creating **Azure Storage Account**, configuring **backend block**, running **terraform init -migrate-state**, and verifying state uploaded to blob
+- **Resource Block Structure**: Consists of **block type** (resource), **two labels** (provider_type and name), and **block body** with arguments defining resource configuration
+- **Variable Benefits**: Variables enable **reusable configurations**, **environment-specific values** (dev/prod), **CI/CD integration**, and **reduced hardcoding** in Terraform files
+- **State Locking**: Remote backend supports **state locking** preventing concurrent modifications, **critical for team environments** where multiple users run Terraform simultaneously
+
+---
+
 ## Step-01: Introduction
 - Understand Terraform language basics 
   - Understand Resources

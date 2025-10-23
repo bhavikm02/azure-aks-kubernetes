@@ -5,6 +5,88 @@ description: Create Azure Pipeline to Build and Push Docker Image to Azure Conta
 
 # Azure DevOps - Build and Push Docker Image to Azure Container Registry
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Source Code Repository"
+        GitHub[GitHub Repository<br/>azure-devops-github-acr-aks-app1]
+        GitHub --> Files[Repository Files:<br/>Dockerfile<br/>index.html<br/>kube-manifests/]
+        Files --> Commits[Git Commits:<br/>V1, V2, V3<br/>Push to master branch]
+    end
+    
+    subgraph "Azure DevOps Setup"
+        AzureDevOps[Azure DevOps Organization<br/>aksdemo1]
+        AzureDevOps --> Project[DevOps Project<br/>azure-devops-github-acr-aks-app1]
+        Project --> Pipeline[Pipeline:<br/>01-Docker-Build-and-Push-to-ACR]
+        
+        Pipeline --> PipelineConfig[Pipeline Configuration:<br/>Trigger: master branch<br/>Agent: ubuntu-latest]
+        PipelineConfig --> ServiceConn[Service Connection:<br/>Azure Subscription<br/>ACR Authentication]
+    end
+    
+    subgraph "CI Pipeline Workflow"
+        Trigger[Git Push to master] --> PipelineTrigger[Pipeline Auto-Triggers]
+        PipelineTrigger --> BuildAgent[Microsoft-hosted Agent<br/>Ubuntu VM]
+        
+        BuildAgent --> CheckoutCode[Checkout Source Code<br/>from GitHub]
+        CheckoutCode --> DockerBuild[Docker Build Task<br/>docker build -t app1-nginx:tag .]
+        DockerBuild --> DockerImage[Docker Image Built<br/>Uses Dockerfile]
+        
+        DockerImage --> TagImage[Tag Image:<br/>aksdevopsacr.azurecr.io/app1/app1nginx:BuildID]
+        TagImage --> DockerPush[Docker Push Task<br/>docker push to ACR]
+    end
+    
+    subgraph "Azure Container Registry"
+        ACR[Azure Container Registry<br/>aksdevopsacr.azurecr.io]
+        ACR --> Namespace[Repository Namespace:<br/>app1/]
+        Namespace --> Images[Stored Images:<br/>app1/app1nginx:1<br/>app1/app1nginx:2<br/>app1/app1nginx:3]
+        
+        ACR --> Features[ACR Features:<br/>✓ Private registry<br/>✓ Geo-replication<br/>✓ Vulnerability scanning<br/>✓ Image signing]
+    end
+    
+    subgraph "Pipeline Tasks"
+        Task1[Task 1: Docker Build<br/>Build image from Dockerfile]
+        Task2[Task 2: Docker Push<br/>Authenticate & push to ACR]
+        Task1 --> Task2
+    end
+    
+    subgraph "Version Control Integration"
+        V1[V1 Commit: Initial index.html]
+        V2[V2 Commit: Update index.html]
+        V3[V3 Commit: Update index.html]
+        
+        V1 --> BuildV1[Build #1 → app1nginx:1]
+        V2 --> BuildV2[Build #2 → app1nginx:2]
+        V3 --> BuildV3[Build #3 → app1nginx:3]
+    end
+    
+    Commits --> Trigger
+    DockerPush --> ACR
+    ServiceConn --> ACR
+    
+    style GitHub fill:#28a745
+    style AzureDevOps fill:#0078d4
+    style BuildAgent fill:#326ce5
+    style ACR fill:#0078d4
+    style DockerImage fill:#2496ed
+    style Images fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **GitHub Integration**: Source code including **Dockerfile**, **index.html**, and **Kubernetes manifests** are stored in a **GitHub repository** and integrated with Azure DevOps for automatic pipeline triggering
+- **Azure DevOps Organization**: Create an **Azure DevOps organization** and **project** to host pipelines, manage builds, and orchestrate the **CI/CD workflow** for containerized applications
+- **Service Connection**: Establish a **service connection** between Azure DevOps and **Azure subscription** to authenticate and push Docker images to **Azure Container Registry** (ACR) securely
+- **CI Pipeline Trigger**: Pipeline is configured with **automatic triggers** on **master branch commits**, ensuring every code push initiates a new **build and push workflow** automatically
+- **Microsoft-Hosted Agent**: Azure DevOps provides **free Microsoft-hosted agents** running on **Ubuntu VMs** with Docker pre-installed, eliminating the need to manage build infrastructure
+- **Docker Build Process**: Pipeline executes **docker build** command using the Dockerfile to create a **container image** with the application code, creating reproducible and portable artifacts
+- **Image Tagging Strategy**: Images are tagged with **BuildID** (e.g., aksdevopsacr.azurecr.io/app1/app1nginx:123), providing **unique versioning** and **traceability** back to specific pipeline runs
+- **Azure Container Registry**: ACR serves as a **private Docker registry** hosted in Azure, storing container images with features like **geo-replication**, **vulnerability scanning**, and **RBAC integration**
+- **Repository Namespaces**: Organize images using **namespace prefixes** (app1/app1nginx) in ACR to logically group related container images by application or team
+- **Continuous Integration**: Each commit (V1, V2, V3) triggers a **separate build**, creating **versioned images** that can be deployed independently, enabling **rollback** and **progressive deployment** strategies
+
+---
+
 ## Step-01: Introduction
 - Understand Azure DevOps Basics
 - Understand Azure Pipelines

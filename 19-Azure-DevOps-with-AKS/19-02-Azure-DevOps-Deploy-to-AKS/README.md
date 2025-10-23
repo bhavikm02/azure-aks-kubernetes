@@ -4,6 +4,106 @@ description: Create Azure Pipeline to Build and Push Docker Image to Azure Conta
 ---
 # Azure DevOps - Build, Push to ACR and Deploy to AKS
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Source Repository"
+        GitHub[GitHub Repository]
+        GitHub --> AppCode[Application Code:<br/>index.html<br/>Dockerfile]
+        GitHub --> K8sManifests[Kubernetes Manifests:<br/>deployment.yml<br/>service.yml]
+        GitHub --> PipelineYAML[Pipeline YAML:<br/>02-pipeline.yml]
+    end
+    
+    subgraph "Azure DevOps Pipeline - Build Stage"
+        Trigger[Git Push to master branch]
+        Trigger --> BuildStage[Stage 1: Build]
+        
+        BuildStage --> BuildAgent[Ubuntu Build Agent<br/>Microsoft-hosted]
+        BuildAgent --> Checkout[Checkout Code<br/>from GitHub]
+        Checkout --> DockerTask[Docker@2 Task<br/>buildAndPush command]
+        
+        DockerTask --> BuildImage[Build Docker Image<br/>using Dockerfile]
+        BuildImage --> TagImage[Tag Image:<br/>aksdevopsacr.azurecr.io/app1nginxaks:BuildID]
+        TagImage --> PushImage[Push to ACR<br/>via Service Connection]
+        
+        PushImage --> UploadArtifact[Upload Artifact:<br/>manifests/ folder<br/>deployment.yml, service.yml]
+    end
+    
+    subgraph "Azure Container Registry"
+        ACR[Azure Container Registry<br/>aksdevopsacr.azurecr.io]
+        ACR --> StoredImage[Stored Image:<br/>app1nginxaks:123]
+        ACR --> ImagePullSecret[imagePullSecret<br/>For AKS authentication]
+    end
+    
+    subgraph "Azure DevOps Pipeline - Deploy Stage"
+        DeployStage[Stage 2: Deploy<br/>dependsOn: Build]
+        DeployStage --> DeployAgent[Ubuntu Deploy Agent]
+        DeployAgent --> Environment[Environment:<br/>AKS Cluster Connection<br/>default namespace]
+        
+        Environment --> DownloadArtifact[Download Artifact:<br/>manifests/]
+        DownloadArtifact --> CreateSecret[KubernetesManifest@0 Task:<br/>Create imagePullSecret]
+        CreateSecret --> DeployManifests[KubernetesManifest@0 Task:<br/>Deploy manifests]
+        
+        DeployManifests --> ApplyDeployment[Apply: deployment.yml<br/>Apply: service.yml]
+    end
+    
+    subgraph "Azure Kubernetes Service"
+        AKS[AKS Cluster: aksdemo3<br/>default namespace]
+        
+        ApplyDeployment --> Deployment[Deployment: app1nginxaks<br/>Replicas: 1]
+        Deployment --> Pods[Pod: app1nginxaks-xxx<br/>Pulls image from ACR]
+        
+        ApplyDeployment --> Service[Service: app1nginxaks<br/>Type: LoadBalancer]
+        Service --> AzureLB[Azure Load Balancer<br/>Public IP]
+        
+        Pods --> Service
+    end
+    
+    subgraph "Service Connections"
+        SvcConn[Service Connections]
+        SvcConn --> ACRConnection[ACR Service Connection<br/>dockerRegistryServiceConnection]
+        SvcConn --> AKSConnection[AKS Service Connection<br/>kubectl context]
+        
+        ACRConnection --> PushImage
+        ACRConnection --> CreateSecret
+        AKSConnection --> DeployManifests
+    end
+    
+    subgraph "End User Access"
+        User[End User]
+        User --> PublicIP[http://Public-IP]
+        PublicIP --> AzureLB
+        AzureLB --> Pods
+        Pods --> Response[Application Response<br/>index.html V3]
+    end
+    
+    PushImage --> ACR
+    StoredImage --> Pods
+    
+    style GitHub fill:#28a745
+    style BuildStage fill:#326ce5
+    style DeployStage fill:#9370db
+    style ACR fill:#0078d4
+    style AKS fill:#0078d4
+    style Response fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Two-Stage Pipeline**: Pipeline consists of **Build stage** (create and push Docker image) and **Deploy stage** (deploy to AKS cluster), with Deploy stage **depending on** successful completion of Build stage
+- **Automated Trigger**: Every **git push to master branch** automatically triggers the entire pipeline, providing **continuous integration** and **continuous deployment** without manual intervention
+- **Build Stage Tasks**: Executes **Docker@2 task** with **buildAndPush command** to build the image using Dockerfile and push directly to **Azure Container Registry** using authenticated service connection
+- **Artifact Upload**: Build stage uploads **Kubernetes manifests** (deployment.yml, service.yml) as **pipeline artifacts**, making them available for the Deploy stage to consume
+- **Deploy Stage Dependency**: Deploy stage has **dependsOn: Build** ensuring it only runs after Build stage succeeds, preventing deployment of failed builds to production
+- **AKS Environment**: Pipeline uses an **Environment** resource that represents the **AKS cluster** and **namespace**, enabling deployment tracking, approvals, and environment-specific configurations
+- **imagePullSecret Creation**: Deploy stage automatically creates a **Kubernetes secret** for ACR authentication, allowing AKS pods to pull private container images from ACR
+- **Manifest Deployment**: **KubernetesManifest@0 task** applies deployment.yml (creates pods) and service.yml (creates LoadBalancer), orchestrating the complete application deployment
+- **Service Connection Security**: Two service connections authenticate the pipeline: **ACR connection** for pushing images and **AKS connection** for deploying manifests via kubectl
+- **Complete CI/CD Flow**: Code commit → Build image → Push to ACR → Download manifests → Create pull secret → Deploy to AKS → LoadBalancer exposes app → Users access via public IP
+
+---
+
 ## Step-00: Pre-requisites
 - We should have Azure AKS Cluster Up and Running.
 ```

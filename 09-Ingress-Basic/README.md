@@ -1,5 +1,83 @@
 # Ingress - Basics
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Azure Infrastructure Setup"
+        AzureCLI[az aks show<br/>Get Node Resource Group]
+        AzureCLI --> CreateIP[az network public-ip create<br/>Static Public IP<br/>52.154.156.139]
+        CreateIP --> StaticIP[Static Public IP<br/>Standard SKU<br/>MC_aks-rg1_aksdemo1_centralus]
+    end
+    
+    subgraph "Ingress Controller Installation"
+        Helm[Helm Package Manager]
+        Helm --> AddRepo[helm repo add<br/>ingress-nginx repository]
+        AddRepo --> HelmInstall[helm install ingress-nginx]
+        
+        HelmInstall --> Namespace[Namespace: ingress-basic<br/>Dedicated for Ingress resources]
+        HelmInstall --> Config[Configuration:<br/>controller.replicaCount: 2<br/>nodeSelector: linux<br/>loadBalancerIP: Static IP]
+        
+        Config --> IngressPods[Ingress Controller Pods<br/>2 replicas for HA]
+        IngressPods --> IngressSvc[LoadBalancer Service<br/>Uses Static Public IP]
+    end
+    
+    subgraph "Application Deployment"
+        AppManifests[Application Manifests]
+        AppManifests --> Deployment[01-NginxApp1-Deployment.yml<br/>Nginx Pods]
+        AppManifests --> ClusterIPSvc[02-NginxApp1-ClusterIP-Service.yml<br/>Internal service]
+        AppManifests --> IngressResource[03-Ingress-Basic.yml<br/>Ingress rules]
+        
+        Deployment --> NginxPods[Nginx App Pods]
+        NginxPods --> ClusterIPSvc
+        IngressResource --> IngressController[Links to Ingress Controller]
+    end
+    
+    subgraph "Traffic Flow"
+        User[Internet User]
+        User --> PublicIP[Public IP: 52.154.156.139]
+        PublicIP --> AzureLB[Azure Load Balancer<br/>Standard SKU]
+        AzureLB --> IngressSvc
+        IngressSvc --> IngressPods
+        IngressPods --> RouteDecision{Ingress Rules<br/>Match Path?}
+        RouteDecision -->|/app1/*| RouteToApp[Route to ClusterIP Service]
+        RouteDecision -->|/| RouteToApp
+        RouteToApp --> ClusterIPSvc
+        ClusterIPSvc --> NginxPods
+    end
+    
+    subgraph "Verification"
+        TestURL[http://52.154.156.139/app1/index.html]
+        TestURL --> Response[Nginx App Response]
+        CheckLogs[kubectl logs ingress-controller-pod]
+        CheckLogs --> ViewTraffic[View ingress traffic logs]
+    end
+    
+    StaticIP --> HelmInstall
+    IngressController --> RouteDecision
+    
+    style CreateIP fill:#0078d4
+    style IngressPods fill:#326ce5
+    style NginxPods fill:#28a745
+    style AzureLB fill:#0078d4
+    style Response fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Static Public IP Creation**: First step is creating a **dedicated static public IP** in the **AKS node resource group** (MC_*) using **Azure CLI**, ensuring the IP persists across ingress controller recreations
+- **Helm Installation**: Use **Helm package manager** to deploy the **NGINX Ingress Controller** with custom configurations including **2 replicas** for high availability and binding to the **static public IP**
+- **Dedicated Namespace**: All ingress controller resources are deployed in the **ingress-basic namespace** to isolate them from application workloads, making management and future **cert-manager** integration easier
+- **LoadBalancer Service**: The ingress controller creates a **Kubernetes LoadBalancer service** that provisions an **Azure Standard Load Balancer** automatically associated with the static public IP
+- **Ingress Resource**: Applications define **Ingress resources** (separate from the controller) that specify **routing rules** based on URL paths to direct traffic to the appropriate **ClusterIP services**
+- **Internal Routing**: Application pods are exposed via **ClusterIP services** (internal only), while the **Ingress Controller** handles external traffic and routes it internally based on **path-based rules**
+- **Traffic Flow**: External users hit the **public IP** → **Azure Load Balancer** → **Ingress Controller pods** → Controller evaluates **ingress rules** → Routes to **ClusterIP service** → **Application pods**
+- **High Availability**: With **2 ingress controller replicas**, traffic is distributed across both pods, providing **redundancy** and **load balancing** for ingress traffic processing
+- **Namespace Flexibility**: While the **ingress controller** lives in **ingress-basic namespace**, the **ingress resources** and **applications** can be in any namespace (must be same namespace per app)
+- **Verification Workflow**: Test by accessing the **public IP** with URL paths, check **ingress controller logs** to verify routing decisions, and confirm the **Azure Load Balancer** frontend IP configuration in Azure Portal
+
+---
+
 ## Step-01: Introduction
 ### Ingress Basic Architecture
 [![Image](https://www.stacksimplify.com/course-images/azure-aks-ingress-basic.png "Azure AKS Kubernetes - Masterclass")](https://www.udemy.com/course/aws-eks-kubernetes-masterclass-devops-microservices/?referralCode=257C9AD5B5AF8D12D1E1)

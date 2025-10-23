@@ -1,5 +1,103 @@
 # Create Azure AKS Cluster using AZ AKS CLI
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Pre-requisite 1: Resource Group"
+        RG[az group create<br/>Resource Group: aks-prod<br/>Location: centralus]
+    end
+    
+    subgraph "Pre-requisite 2: Virtual Network Setup"
+        VNet[az network vnet create<br/>VNet: aks-vnet<br/>Address: 10.0.0.0/8]
+        VNet --> Subnet1[Subnet: aks-subnet-default<br/>10.240.0.0/16<br/>For AKS Nodepools]
+        VNet --> Subnet2[Subnet: aks-subnet-virtual-nodes<br/>10.241.0.0/16<br/>For Virtual Nodes ACI]
+    end
+    
+    subgraph "Pre-requisite 3: Azure AD Integration"
+        AAD[Azure Active Directory]
+        AAD --> ADGroup[az ad group create<br/>Group: aksadmins<br/>For cluster admin access]
+        AAD --> ADUser[az ad user create<br/>User: aksadmin1<br/>Password: @AKSDemo123]
+        ADUser --> AddToGroup[az ad group member add<br/>Add user to aksadmins group]
+    end
+    
+    subgraph "Pre-requisite 4: SSH Key"
+        SSH[ssh-keygen -t rsa -b 4096<br/>Location: ~/.ssh/aks-prod-sshkeys/<br/>For SSH access to worker nodes]
+    end
+    
+    subgraph "Pre-requisite 5: Log Analytics"
+        LogAnalytics[az monitor log-analytics workspace create<br/>Workspace: aksprod-workspace<br/>For cluster monitoring & logs]
+    end
+    
+    subgraph "Pre-requisite 6: Windows Support"
+        WinCreds[Set Windows Admin Credentials<br/>Username: azureuser<br/>Password: @Win1Pass234<br/>For future Windows node pools]
+    end
+    
+    subgraph "Production AKS Cluster Creation"
+        AKSCreate[az aks create --name aksprod1]
+        AKSCreate --> SystemPool[System Node Pool:<br/>Name: systempool<br/>VM Size: Standard_DS2_v2<br/>Min: 3, Max: 10<br/>Enable Autoscaler]
+        
+        AKSCreate --> Features[Enabled Features]
+        Features --> F1[--enable-addons monitoring<br/>Azure Monitor Container Insights]
+        Features --> F2[--enable-aad<br/>Azure AD Integration]
+        Features --> F3[--network-plugin azure<br/>Azure CNI networking]
+        Features --> F4[--enable-managed-identity<br/>System-assigned managed identity]
+        Features --> F5[--enable-cluster-autoscaler<br/>Auto-scale system pool]
+        Features --> F6[--aad-admin-group-object-ids<br/>Link to aksadmins AD group]
+    end
+    
+    subgraph "Created Azure Resources"
+        ResourceGroups[Two Resource Groups Created]
+        ResourceGroups --> UserRG[aks-prod<br/>User-managed RG<br/>Contains AKS resource]
+        ResourceGroups --> NodeRG[MC_aks-prod_aksprod1_centralus<br/>Node Resource Group<br/>Contains infrastructure]
+        
+        NodeRG --> InfraResources[Infrastructure Resources:<br/>✓ VMSS for nodes<br/>✓ Load Balancers<br/>✓ Public IPs<br/>✓ Network Security Groups<br/>✓ Route Tables<br/>✓ Disks]
+    end
+    
+    subgraph "Post-Creation Setup"
+        GetCreds[az aks get-credentials<br/>--name aksprod1<br/>--resource-group aks-prod]
+        GetCreds --> KubeConfig[Updates ~/.kube/config<br/>kubectl context configured]
+        
+        Verify[Verification Commands]
+        Verify --> V1[kubectl get nodes<br/>Verify node pool]
+        Verify --> V2[kubectl get pods -n kube-system<br/>Check system pods]
+        Verify --> V3[az aks show<br/>View cluster details]
+    end
+    
+    RG --> AKSCreate
+    Subnet1 --> AKSCreate
+    ADGroup --> AKSCreate
+    SSH --> AKSCreate
+    LogAnalytics --> AKSCreate
+    WinCreds --> AKSCreate
+    
+    SystemPool --> NodeRG
+    AKSCreate --> GetCreds
+    
+    style RG fill:#0078d4
+    style VNet fill:#326ce5
+    style AAD fill:#00bcf2
+    style AKSCreate fill:#28a745
+    style SystemPool fill:#9370db
+    style LogAnalytics fill:#ff8c00
+    style InfraResources fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Production-Grade Prerequisites**: Creating a production AKS cluster requires **six key prerequisites** - resource group, virtual network with subnets, Azure AD integration, SSH keys, log analytics workspace, and Windows credentials
+- **Dual Subnet Design**: Virtual network has **two subnets** - one for **regular AKS node pools** (10.240.0.0/16) and another for **serverless virtual nodes** (10.241.0.0/16), enabling hybrid workload deployment
+- **Azure AD Integration**: Cluster integrates with **Azure Active Directory** using an **aksadmins group** for RBAC, enabling **enterprise authentication** and **fine-grained access control** using AD users and groups
+- **SSH Key Creation**: Generate **4096-bit RSA keys** for secure SSH access to worker nodes, essential for troubleshooting, debugging, and direct node access in production scenarios
+- **Monitoring with Log Analytics**: **Azure Monitor Container Insights** enabled via log analytics workspace provides **cluster metrics**, **container logs**, **performance monitoring**, and **alerting capabilities**
+- **Windows Workload Support**: Setting **Windows admin credentials** during cluster creation enables future addition of **Windows node pools** for running .NET Framework applications alongside Linux workloads
+- **System Node Pool**: Production cluster starts with a **system node pool** (3-10 nodes, auto-scaling enabled) dedicated to running **critical system pods** like CoreDNS, metrics-server, and tunnel-front
+- **Azure CNI Networking**: Uses **Azure CNI** (Container Network Interface) where pods get IPs directly from the VNet subnet, enabling **direct pod-to-pod** communication and **integration with Azure services**
+- **Managed Identity**: **System-assigned managed identity** automatically manages credentials for AKS to interact with Azure resources (Load Balancers, Disks, ACR) without manual key management
+- **Dual Resource Groups**: AKS creates **two resource groups** - user-managed **aks-prod** (contains AKS resource) and Azure-managed **MC_*** (contains VMSS, Load Balancers, disks, networking infrastructure)
+
+---
+
 ## Step-01: Introduction
 - Design a Production grade cluster using command line
 - az aks cli

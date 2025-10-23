@@ -1,5 +1,122 @@
 # Terraform Command Basics
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Terraform Installation & Setup"
+        Install[Install Terraform]
+        Install --> Verify[terraform version<br/>Check installation]
+        Verify --> InstallAzCLI[Install Azure CLI<br/>az --version]
+        InstallAzCLI --> AzLogin[az login<br/>Authenticate to Azure]
+    end
+    
+    subgraph "Terraform Configuration Files"
+        TFFiles[Terraform Files .tf]
+        TFFiles --> Provider[provider.tf:<br/>Configure azurerm provider<br/>Define version constraints]
+        TFFiles --> Main[main.tf:<br/>Define resources<br/>Resource groups, networks, etc.]
+        TFFiles --> Variables[variables.tf:<br/>Input variables<br/>Parameterize configurations]
+        TFFiles --> Outputs[outputs.tf:<br/>Output values<br/>Export resource attributes]
+    end
+    
+    subgraph "terraform init - Initialize"
+        Init[terraform init]
+        Init --> DownloadProviders[Download Providers<br/>Installs azurerm provider<br/>Stores in .terraform/ folder]
+        DownloadProviders --> LockFile[terraform.lock.hcl<br/>Lock provider versions]
+        DownloadProviders --> TFFolder[.terraform/ directory<br/>Contains provider binaries]
+    end
+    
+    subgraph "terraform validate - Syntax Check"
+        Validate[terraform validate]
+        Validate --> CheckSyntax[Check Configuration Syntax]
+        CheckSyntax --> ValidResult{Valid?}
+        ValidResult -->|Yes| ValidOK[✓ Configuration valid]
+        ValidResult -->|No| Errors[Show syntax errors]
+    end
+    
+    subgraph "terraform plan - Preview Changes"
+        Plan[terraform plan]
+        Plan --> ReadState[Read terraform.tfstate<br/>Current state]
+        Plan --> CompareDesired[Compare desired vs current state]
+        CompareDesired --> ShowChanges[Show execution plan:<br/>+ Create<br/>~ Modify<br/>- Delete]
+        ShowChanges --> SavePlan[Optional: -out=plan.tfplan<br/>Save plan for apply]
+    end
+    
+    subgraph "terraform apply - Execute Changes"
+        Apply[terraform apply]
+        Apply --> ConfirmPrompt[Show plan<br/>Ask for confirmation:<br/>yes/no]
+        ConfirmPrompt -->|yes| ExecuteChanges[Execute Changes<br/>Create/modify/delete resources]
+        ConfirmPrompt -->|no| Cancel[Cancel operation]
+        ExecuteChanges --> UpdateState[Update terraform.tfstate<br/>Record new state]
+    end
+    
+    subgraph "terraform show - Inspect State"
+        Show[terraform show]
+        Show --> DisplayState[Display current state<br/>Show all managed resources<br/>and their attributes]
+    end
+    
+    subgraph "terraform refresh - Sync State"
+        Refresh[terraform refresh]
+        Refresh --> QueryAzure[Query Azure resources<br/>Get current state from cloud]
+        QueryAzure --> UpdateStateFile[Update terraform.tfstate<br/>Sync with reality]
+    end
+    
+    subgraph "terraform providers - List Providers"
+        Providers[terraform providers]
+        Providers --> ListProviders[List required providers:<br/>hashicorp/azurerm<br/>hashicorp/random<br/>etc.]
+    end
+    
+    subgraph "terraform destroy - Clean Up"
+        Destroy[terraform destroy]
+        Destroy --> DestroyPlan[Show destroy plan<br/>List resources to delete]
+        DestroyPlan --> ConfirmDestroy[Confirm: yes/no]
+        ConfirmDestroy -->|yes| DeleteResources[Delete all managed resources]
+        DeleteResources --> ClearState[Clear terraform.tfstate]
+    end
+    
+    subgraph "State Management"
+        StateFile[terraform.tfstate]
+        StateFile --> S1[Tracks managed resources]
+        StateFile --> S2[Maps config to real resources]
+        StateFile --> S3[Stores resource metadata]
+        StateFile --> S4[Critical for team collaboration]
+        StateFile --> S5[Backend: local or remote<br/>Azure Storage, S3, Terraform Cloud]
+    end
+    
+    TFFiles --> Init
+    Init --> Validate
+    Validate --> Plan
+    Plan --> Apply
+    Apply --> Show
+    Show --> Refresh
+    Refresh --> Destroy
+    
+    UpdateState --> StateFile
+    UpdateStateFile --> StateFile
+    
+    style Install fill:#5c4ee5
+    style Init fill:#326ce5
+    style Plan fill:#00bcf2
+    style Apply fill:#28a745
+    style Destroy fill:#dc3545
+    style StateFile fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Terraform Installation**: Install Terraform binary and verify with `terraform version`, then install **Azure CLI** for authenticating to Azure, and run **az login** to set up credentials
+- **terraform init**: The **first command** to run, downloads provider plugins (azurerm) and stores them in **.terraform/ directory**, creating a **terraform.lock.hcl** to lock provider versions
+- **terraform validate**: Validates **configuration syntax** without accessing any remote services, checking for errors in **.tf files** like missing required arguments or invalid attribute names
+- **terraform plan**: Creates an **execution plan** showing what Terraform will do before making changes - displays resources to **create (+)**, **modify (~)**, or **delete (-)**, without actually changing anything
+- **terraform apply**: **Executes the plan** to create, update, or delete infrastructure, prompts for confirmation (unless **-auto-approve** flag used), and updates **terraform.tfstate** with new resource information
+- **terraform.tfstate**: The **state file** that tracks all managed resources, maps Terraform config to real Azure resources, and is **critical for knowing** what exists and detecting drift
+- **terraform show**: Displays the **current state** in human-readable format, showing all resources Terraform is managing and their current attribute values
+- **terraform refresh**: Queries **Azure directly** to get current resource state and updates **terraform.tfstate** to match reality, useful when resources are modified outside Terraform
+- **terraform providers**: Lists all **required providers** and their versions, useful for understanding dependencies and troubleshooting provider-related issues
+- **terraform destroy**: **Deletes all resources** managed by Terraform, shows a plan of what will be destroyed, requires confirmation, and cleans up **terraform.tfstate** file
+
+---
+
 ## Step-01: Introduction
 - Install Terraform
 - Understand what is Terraform

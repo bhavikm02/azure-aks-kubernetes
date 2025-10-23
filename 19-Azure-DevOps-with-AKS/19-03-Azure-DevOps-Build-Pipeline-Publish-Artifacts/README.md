@@ -4,6 +4,97 @@ description: Create Azure Pipeline to Build and Push Docker Image to Azure Conta
 ---
 # Azure DevOps Create Starter Pipeline
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Pipeline Structure"
+        Pipeline[Azure DevOps Build Pipeline]
+        Pipeline --> Trigger[Trigger: Push to master]
+        Pipeline --> Agent[Agent: ubuntu-latest]
+    end
+    
+    subgraph "Task 1: Docker Build and Push"
+        Task1[Task 1: Docker@2]
+        Task1 --> DockerBuild[Build Docker Image<br/>Image: custom1aksnginxapp1]
+        DockerBuild --> DockerPush[Push to ACR<br/>aksdevopsacr.azurecr.io]
+        DockerPush --> TaggedImage[Tagged Image:<br/>custom1aksnginxapp1:BuildID]
+    end
+    
+    subgraph "Task 2: Copy Files to Staging Directory"
+        DefaultWorkDir[System.DefaultWorkingDirectory<br/>Source repo checkout location]
+        DefaultWorkDir --> SourceFiles[Source Files:<br/>kube-manifests/<br/>deployment.yml<br/>service.yml]
+        
+        Task2[Task 2: CopyFiles@2]
+        SourceFiles --> Task2
+        Task2 --> CopyOperation[Copy Operation:<br/>SourceFolder: kube-manifests/<br/>Contents: **<br/>TargetFolder: Artifact Staging]
+        
+        CopyOperation --> StagingDir[Build.ArtifactStagingDirectory<br/>Temporary staging location]
+    end
+    
+    subgraph "Task 3: Publish Artifacts"
+        StagingDir --> Task3[Task 3: PublishBuildArtifacts@1]
+        Task3 --> PublishOperation[Publish Operation:<br/>PathtoPublish: Build.ArtifactStagingDirectory<br/>ArtifactName: kube-manifests<br/>publishLocation: Container]
+        
+        PublishOperation --> ArtifactStore[Azure Pipelines Artifact Store<br/>Artifact: kube-manifests<br/>Contains K8s manifests]
+    end
+    
+    subgraph "Directory Inspection"
+        Before[Before Copy:<br/>ls -R System.DefaultWorkingDirectory]
+        During[Before Copy:<br/>ls -R Build.ArtifactStagingDirectory]
+        After[After Copy:<br/>ls -R Build.ArtifactStagingDirectory]
+        
+        Before --> Task2
+        Task2 --> During
+        During --> After
+    end
+    
+    subgraph "Artifact Consumption"
+        ArtifactStore --> ReleasePipeline[Release Pipeline<br/>Can download artifacts]
+        ArtifactStore --> OtherPipeline[Other Build Pipelines<br/>Can consume artifacts]
+        ArtifactStore --> ManualDownload[Manual Download<br/>From pipeline run]
+    end
+    
+    subgraph "Service Connection"
+        ServiceConn[Service Connection:<br/>manual-aksdevopsacr-svc]
+        ServiceConn --> ACRAuth[ACR Authentication:<br/>Docker Registry type<br/>Azure Container Registry]
+        ACRAuth --> DockerPush
+    end
+    
+    subgraph "Build Pipeline Concepts"
+        Concepts[Key Concepts]
+        Concepts --> C1[System.DefaultWorkingDirectory:<br/>Where Git repo is cloned]
+        Concepts --> C2[Build.ArtifactStagingDirectory:<br/>Temporary staging for artifacts]
+        Concepts --> C3[Build.BuildId:<br/>Unique identifier for each run]
+        Concepts --> C4[Container:<br/>Artifacts stored in pipeline storage]
+    end
+    
+    DockerPush --> TaggedImage
+    Task1 --> Task2
+    Task2 --> Task3
+    
+    style Task1 fill:#326ce5
+    style Task2 fill:#9370db
+    style Task3 fill:#28a745
+    style ArtifactStore fill:#ffd700
+    style ACRAuth fill:#0078d4
+```
+
+### Understanding the Diagram
+
+- **Three-Task Pipeline**: Build pipeline consists of three distinct tasks - **Task 1** (Build & Push Docker image), **Task 2** (Copy files to staging), and **Task 3** (Publish artifacts to Azure Pipelines)
+- **System.DefaultWorkingDirectory**: This is the **source directory** where Azure Pipelines clones your **GitHub repository** containing code, Dockerfile, and kube-manifests during pipeline execution
+- **CopyFiles@2 Task**: Copies **Kubernetes manifests** from the source repo directory to the **Build.ArtifactStagingDirectory**, which is a temporary location for preparing artifacts before publishing
+- **Build.ArtifactStagingDirectory**: A **temporary staging directory** created for each pipeline run where files are copied before being published as artifacts, separate from the source code checkout
+- **PublishBuildArtifacts@1 Task**: Takes contents from the **staging directory** and publishes them as a named artifact (**kube-manifests**) to **Azure Pipelines artifact storage**
+- **Artifact Storage**: Published artifacts are stored in **Azure Pipelines Container storage**, making them available for **Release Pipelines**, other builds, or manual download for deployment purposes
+- **Service Connection Pattern**: Uses a **manually created service connection** to ACR for authentication, demonstrating manual configuration of Docker Registry connections for finer control
+- **Directory Inspection**: Pipeline includes **bash commands** to list directory contents before and after copy operations, helping debug and verify the **file copy process**
+- **Artifact Consumption**: Published artifacts can be consumed by **Release Pipelines** (for deployment to multiple environments), **other pipelines** (for cross-pipeline dependencies), or downloaded manually
+- **Starter Pipeline Approach**: This demonstrates building a pipeline **from scratch** using starter template and manually adding tasks, teaching the fundamentals of **pipeline YAML structure** and task configuration
+
+---
+
 ## Step-01: Introduction
 
 ### Part-1: Partial manual pipeline

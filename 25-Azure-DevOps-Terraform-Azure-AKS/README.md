@@ -1,5 +1,99 @@
 # Provision Azure AKS using Terraform & Azure DevOps
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Azure DevOps Pipeline Structure"
+        Pipeline[Azure DevOps Pipeline<br/>Terraform AKS Provisioning]
+        Pipeline --> Stages[Multiple Stages]
+        Stages --> Stage1[Stage 1: Terraform Validate]
+        Stages --> Stage2[Stage 2: Deploy Dev AKS]
+        Stages --> Stage3[Stage 3: Deploy QA AKS]
+    end
+    
+    subgraph "Stage 1: Terraform Validate"
+        Validate[Terraform Validate Stage]
+        Validate --> V1[Terraform Init Task<br/>Initialize backend]
+        V1 --> V2[Terraform Validate Task<br/>Check syntax]
+        V2 --> V3[Publish Artifacts Task<br/>Upload Terraform files]
+    end
+    
+    subgraph "Stage 2: Deploy Dev Environment"
+        DevStage[Dev Deployment Stage]
+        DevStage --> DevInit[Terraform Init<br/>Backend: Azure Storage<br/>Key: dev-terraform.tfstate]
+        DevInit --> DevPlan[Terraform Plan<br/>-var environment=dev<br/>-var ssh_public_key=pipeline-variable]
+        DevPlan --> DevApply[Terraform Apply<br/>Create Dev AKS Cluster]
+        DevApply --> DevCluster[Dev AKS Created:<br/>terraform-aks-dev-cluster<br/>Resource Group: terraform-aks-dev]
+    end
+    
+    subgraph "Stage 3: Deploy QA Environment"
+        QAStage[QA Deployment Stage]
+        QAStage --> QAInit[Terraform Init<br/>Backend: Azure Storage<br/>Key: qa-terraform.tfstate]
+        QAInit --> QAPlan[Terraform Plan<br/>-var environment=qa<br/>-var ssh_public_key=pipeline-variable]
+        QAPlan --> QAApply[Terraform Apply<br/>Create QA AKS Cluster]
+        QAApply --> QACluster[QA AKS Created:<br/>terraform-aks-qa-cluster<br/>Resource Group: terraform-aks-qa]
+    end
+    
+    subgraph "Terraform Backend Configuration"
+        Backend[Azure Storage Backend]
+        Backend --> StorageRG[Resource Group:<br/>terraform-storage-rg]
+        StorageRG --> StorageAcct[Storage Account:<br/>terraformstatexxxxx]
+        StorageAcct --> Container[Container: tfstatedevops]
+        Container --> DevState[dev-terraform.tfstate]
+        Container --> QAState[qa-terraform.tfstate]
+    end
+    
+    subgraph "Pipeline Variables"
+        Variables[Pipeline Variables]
+        Variables --> EnvVar[environment:<br/>dev or qa<br/>Passed to -var flag]
+        Variables --> SSHVar[ssh_public_key:<br/>Secure variable<br/>SSH key for nodes]
+    end
+    
+    subgraph "Service Principal Setup"
+        SP[Service Principal]
+        SP --> SPPerms[Required Permissions:<br/>Contributor on Subscription<br/>+ Azure AD Directory.ReadWrite.All]
+        SPPerms --> SPReason[Why AD Permission?<br/>Create Azure AD Groups<br/>for AKS Admins]
+    end
+    
+    subgraph "Terraform Plugins"
+        Plugins[Terraform Tasks Extension]
+        Plugins --> TerraformInstall[TerraformInstaller@0<br/>Install Terraform binary]
+        Plugins --> TerraformInit[TerraformCLI@0 init<br/>Initialize working directory]
+        Plugins --> TerraformValidate[TerraformCLI@0 validate<br/>Validate configuration]
+        Plugins --> TerraformPlan[TerraformCLI@0 plan<br/>Preview changes]
+        Plugins --> TerraformApply[TerraformCLI@0 apply<br/>Apply changes]
+    end
+    
+    DevInit --> Backend
+    QAInit --> Backend
+    Variables --> DevPlan
+    Variables --> QAPlan
+    SP --> DevApply
+    SP --> QAApply
+    
+    style Pipeline fill:#0078d4
+    style Validate fill:#326ce5
+    style DevStage fill:#28a745
+    style QAStage fill:#9370db
+    style Backend fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Multi-Environment Pipeline**: Single **Azure DevOps pipeline** provisions **two separate AKS clusters** (Dev and QA) using Terraform with environment-specific configurations
+- **Three-Stage Pipeline**: Stage 1 validates Terraform syntax, Stage 2 deploys Dev cluster, Stage 3 deploys QA cluster, ensuring code validation before any infrastructure changes
+- **Separate State Files**: Each environment uses **separate Terraform state files** (dev-terraform.tfstate, qa-terraform.tfstate) in Azure Storage, enabling independent cluster management
+- **Backend in Azure Storage**: Terraform state stored in **Azure Blob Storage** provides **team collaboration**, **state locking**, and **version history** for infrastructure changes
+- **Environment Variables**: Pipeline passes **environment variable** (dev/qa) to Terraform, dynamically setting resource names like **terraform-aks-dev-cluster** vs **terraform-aks-qa-cluster**
+- **SSH Key Security**: SSH public key stored as **secure pipeline variable**, injected at runtime, avoiding hardcoded secrets in Git repository
+- **Service Principal Permissions**: SP needs **Contributor** (create resources) + **Directory.ReadWrite.All** (create Azure AD groups for AKS admins), critical permission often overlooked
+- **Terraform Extension**: Uses **charleszipp.azure-pipelines-tasks-terraform** extension providing **TerraformCLI@0 tasks** for init, validate, plan, and apply operations
+- **Infrastructure as Code**: Entire AKS cluster defined in **versioned Terraform files**, enabling **reproducible deployments**, **environment parity**, and **disaster recovery**
+- **Automated Provisioning**: Git commit triggers pipeline → validates Terraform → deploys to Dev → deploys to QA, fully automating infrastructure provisioning without manual Azure Portal clicks
+
+---
+
 ## Step-01: Introduction
 - Create Azure DevOps Pipeline to create AKS cluster using Terraform
 - We are going to create two environments Dev and QA using single pipeline. 

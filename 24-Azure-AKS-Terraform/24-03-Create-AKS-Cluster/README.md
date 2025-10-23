@@ -1,5 +1,114 @@
 # Provision Azure AKS Cluster using Terraform
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Terraform Files Structure"
+        Files[Terraform Configuration Files]
+        Files --> Variables[01-variables.tf:<br/>SSH key path<br/>Windows credentials<br/>Environment, location]
+        Files --> Datasource[02-datasource.tf:<br/>Get latest AKS version<br/>azurerm_kubernetes_service_versions]
+        Files --> RG[03-resource-group.tf:<br/>Resource group for AKS]
+        Files --> LogAnalytics[04-log-analytics.tf:<br/>Monitor workspace]
+        Files --> AKSG[05-aks-aad-group.tf:<br/>Azure AD group for admins]
+        Files --> AKSCluster[06-aks-cluster.tf:<br/>AKS cluster resource]
+        Files --> Outputs[07-outputs.tf:<br/>Export cluster details]
+    end
+    
+    subgraph "Data Sources"
+        GetVersion[Data Source: AKS Versions]
+        GetVersion --> QueryAzure[Query Azure for available K8s versions]
+        QueryAzure --> LatestVersion[Get latest stable version<br/>latest_version attribute<br/>Exclude preview versions]
+    end
+    
+    subgraph "Resource: Log Analytics Workspace"
+        LAW[azurerm_log_analytics_workspace]
+        LAW --> LAWName[Name: ${var.environment}-logs-${random_id}<br/>Dynamic naming]
+        LAW --> LAWSKU[SKU: PerGB2018<br/>Pay per GB ingested]
+        LAW --> LAWRetention[retention_in_days: 30<br/>Log retention period]
+    end
+    
+    subgraph "Resource: Azure AD Group"
+        AADGroup[azuread_group]
+        AADGroup --> GroupName[Name: ${var.environment}-aks-admins<br/>Environment-specific]
+        AADGroup --> GroupDesc[Description: AKS Admins<br/>For RBAC]
+        AADGroup --> GroupMembers[Add AD Users<br/>Grant cluster admin access]
+    end
+    
+    subgraph "Resource: AKS Cluster"
+        AKS[azurerm_kubernetes_cluster]
+        AKS --> AKSName[name: ${var.environment}-aks<br/>dns_prefix: Environment-based]
+        AKS --> K8sVersion[kubernetes_version:<br/>data.azurerm_kubernetes_service_versions.current.latest_version]
+        
+        AKS --> DefaultPool[default_node_pool:<br/>name: systempool<br/>vm_size: Standard_DS2_v2<br/>enable_auto_scaling: true<br/>min_count: 1, max_count: 5]
+        
+        AKS --> LinuxProfile[linux_profile:<br/>admin_username: ubuntu<br/>ssh_key: var.ssh_public_key]
+        
+        AKS --> WindowsProfile[windows_profile:<br/>admin_username: var.windows_admin_username<br/>admin_password: var.windows_admin_password]
+        
+        AKS --> ServicePrincipal[identity:<br/>type: SystemAssigned<br/>Managed Identity]
+        
+        AKS --> AADProfile[azure_active_directory_role_based_access_control:<br/>managed: true<br/>azure_rbac_enabled: true<br/>admin_group_object_ids]
+        
+        AKS --> NetworkProfile[network_profile:<br/>network_plugin: azure<br/>service_cidr, dns_service_ip]
+        
+        AKS --> Addon[addon_profile:<br/>oms_agent: enabled<br/>log_analytics_workspace_id]
+    end
+    
+    subgraph "Terraform Provisioning Workflow"
+        Workflow[Provisioning Steps]
+        Workflow --> W1[1. terraform init<br/>Download providers]
+        W1 --> W2[2. terraform plan<br/>Preview resources]
+        W2 --> W3[3. terraform apply<br/>Create cluster takes 10-15 min]
+        W3 --> W4[4. az aks get-credentials<br/>Configure kubectl]
+        W4 --> W5[5. kubectl get nodes<br/>Verify cluster]
+    end
+    
+    subgraph "Cluster Access Methods"
+        Access[Access AKS Cluster]
+        Access --> AdminAccess[Admin Access:<br/>az aks get-credentials --admin<br/>Bypass Azure AD]
+        Access --> AADAccess[Azure AD Access:<br/>az aks get-credentials<br/>Authenticate as AD user]
+        AADAccess --> AADLogin[az login<br/>AD user credentials]
+        AADLogin --> KubectlCmd[kubectl commands<br/>RBAC enforced]
+    end
+    
+    subgraph "Output Values"
+        OutputValues[Terraform Outputs]
+        OutputValues --> O1[cluster_id<br/>resource_group_name]
+        OutputValues --> O2[cluster_name<br/>cluster_fqdn]
+        OutputValues --> O3[kube_config<br/>Full kubeconfig]
+        OutputValues --> O4[client_certificate<br/>client_key<br/>cluster_ca_certificate]
+    end
+    
+    Datasource --> K8sVersion
+    LAW --> Addon
+    AADGroup --> AADProfile
+    Variables --> LinuxProfile
+    Variables --> WindowsProfile
+    
+    style Files fill:#5c4ee5
+    style AKS fill:#326ce5
+    style LAW fill:#ff8c00
+    style AADGroup fill:#00bcf2
+    style Workflow fill:#28a745
+    style OutputValues fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Modular Terraform Files**: Configuration split into separate **.tf files** - variables, datasources, resources (RG, Log Analytics, AAD group, AKS cluster), and outputs for **better organization** and **maintainability**
+- **Data Source for Versions**: Use **azurerm_kubernetes_service_versions** datasource to **dynamically get latest stable K8s version**, eliminating hardcoded versions and ensuring up-to-date deployments
+- **Log Analytics Integration**: Creates **Log Analytics workspace** with **random suffix** for unique naming, integrated with AKS for **container insights**, **metrics**, and **log aggregation**
+- **Azure AD RBAC**: Creates **Azure AD group** for AKS admins, integrated with cluster via **azure_active_directory_role_based_access_control** block, enabling **AD-based authentication** and **Kubernetes RBAC**
+- **System-Assigned Identity**: Cluster uses **System-assigned Managed Identity** instead of service principal, automatically managing credentials for accessing **ACR**, **Load Balancers**, and **Azure Disks**
+- **SSH Keys for Linux**: Define **SSH public key** path in variables for Linux worker node access, enabling **secure shell access** for troubleshooting and debugging
+- **Windows Node Pool Support**: Setting **windows_profile** during cluster creation enables future **Windows node pools**, required for running **.NET Framework** and **Windows containers**
+- **Default Node Pool**: Initial **system node pool** with **auto-scaling** (1-5 nodes) for running **system pods** (CoreDNS, metrics-server), with **Standard_DS2_v2** VMs for cost-effective learning
+- **Azure CNI Networking**: **network_plugin: azure** provides pods with IPs from VNet, enabling **direct communication** with Azure services and **network policy support**
+- **Dual Access Modes**: Access cluster with **--admin flag** (bypass AD) for emergencies or via **Azure AD** authentication for normal operations with RBAC enforcement
+
+---
+
 ## Step-01: Introduction
 - Create SSH Keys for AKS Linux VMs
 - Declare Windows Username, Passwords for Windows nodepools. This needs to be done during the creation of cluster for 1st time itself if you have plans for Windows workloads on your cluster

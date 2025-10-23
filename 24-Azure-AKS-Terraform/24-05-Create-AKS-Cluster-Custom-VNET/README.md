@@ -1,5 +1,69 @@
 # Create Azure AKS Cluster using Custom Virtual Network
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Custom Virtual Network"
+        VNet[azurerm_virtual_network<br/>aks-network<br/>10.0.0.0/8]
+        VNet --> AKSSubnet[azurerm_subnet<br/>aks-default-subnet<br/>10.240.0.0/16<br/>For AKS node pools]
+    end
+    
+    subgraph "AKS Cluster with Custom VNet"
+        AKSCluster[azurerm_kubernetes_cluster]
+        AKSCluster --> DefaultNP[default_node_pool:<br/>vnet_subnet_id = azurerm_subnet.aks-default.id<br/>Pods & nodes get IPs from VNet]
+        AKSCluster --> NetworkPlugin[network_plugin: azure<br/>Azure CNI networking]
+    end
+    
+    subgraph "Node Pools with Custom VNet"
+        LinuxNP[Linux Node Pool<br/>azurerm_kubernetes_cluster_node_pool]
+        LinuxNP --> LinuxVNet[vnet_subnet_id = azurerm_subnet.aks-default.id<br/>Same subnet as system pool]
+        
+        WinNP[Windows Node Pool<br/>azurerm_kubernetes_cluster_node_pool]
+        WinNP --> WinVNet[vnet_subnet_id = azurerm_subnet.aks-default.id<br/>Same subnet as system pool]
+    end
+    
+    subgraph "Benefits of Custom VNet"
+        Benefits[Why Custom VNet?]
+        Benefits --> B1[IP Address Control<br/>Define your IP ranges]
+        Benefits --> B2[Network Integration<br/>Connect to on-premises via VPN/ExpressRoute]
+        Benefits --> B3[Security Policies<br/>Network Security Groups NSG]
+        Benefits --> B4[Shared VNet<br/>Multiple services in same VNet]
+        Benefits --> B5[Private Endpoints<br/>Private connectivity to Azure services]
+    end
+    
+    subgraph "Pod IP Addressing"
+        PodIPs[Pod IP Allocation]
+        PodIPs --> CNI[Azure CNI Mode:<br/>Pods get IPs from VNet subnet]
+        PodIPs --> DirectConnect[Pods directly reachable<br/>from VNet resources]
+        PodIPs --> IPPlanning[Plan IP space carefully:<br/>Pods + Nodes consume IPs<br/>Max 110 pods per node default]
+    end
+    
+    AKSSubnet --> DefaultNP
+    AKSSubnet --> LinuxVNet
+    AKSSubnet --> WinVNet
+    
+    style VNet fill:#326ce5
+    style AKSCluster fill:#28a745
+    style Benefits fill:#ffd700
+    style PodIPs fill:#9370db
+```
+
+### Understanding the Diagram
+
+- **Custom Virtual Network**: Create dedicated **VNet** (10.0.0.0/8) and **subnet** (10.240.0.0/16) via Terraform for full control over IP addressing and network topology
+- **VNet Subnet Reference**: All node pools (system, linux, windows) use **vnet_subnet_id** parameter referencing the custom subnet, ensuring all nodes deploy into the same network
+- **Azure CNI Networking**: With **network_plugin: azure**, pods receive **IP addresses directly from the VNet subnet**, not from an overlay network, enabling direct connectivity
+- **IP Address Planning**: Each **node consumes 1 IP**, and with default max **110 pods per node**, plan subnet size accordingly (e.g., 10 nodes × 111 IPs = 1110 IPs minimum)
+- **Enterprise Integration**: Custom VNet enables **VPN/ExpressRoute** connectivity to on-premises networks, **private endpoints** for Azure services, and **NSG rules** for traffic filtering
+- **Shared VNet Scenario**: Deploy AKS in existing VNet alongside **VMs**, **databases**, and other Azure services for unified network architecture and centralized management
+- **Pod-to-Pod Communication**: Pods can directly communicate using **VNet IPs** without NAT, simplifying network troubleshooting and enabling seamless integration with Azure services
+- **Network Security Groups**: Apply **NSG rules** to the AKS subnet for controlling inbound/outbound traffic, implementing network-level security policies across all nodes and pods
+- **State Storage Key**: Use different **backend storage key** (prodtfstatecustomvnet) for this cluster to maintain separate Terraform state from previous deployments
+- **Deployment Benefits**: Custom VNet provides **production-grade networking**, **IP address control**, **security boundaries**, and **hybrid connectivity** for enterprise AKS deployments
+
+---
+
 ## Step-01: Introduction
 - Create a Custom Virtual Network and Subnet
 - Reference the same in AKS Cluster and Node Pools linux and windows

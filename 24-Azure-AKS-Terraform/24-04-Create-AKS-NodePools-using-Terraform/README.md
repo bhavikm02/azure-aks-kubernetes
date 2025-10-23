@@ -1,5 +1,86 @@
 # Create Azure AKS Cluster Linux and Windows Node Pools
 
+## 📊 Architecture & Workflow Diagram
+
+```mermaid
+graph TB
+    subgraph "Existing AKS Cluster via Terraform"
+        ExistingCluster[AKS Cluster<br/>Created in previous module]
+        ExistingCluster --> SystemPool[System Node Pool<br/>In AKS cluster resource]
+    end
+    
+    subgraph "Linux Node Pool Resource"
+        LinuxNP[azurerm_kubernetes_cluster_node_pool]
+        LinuxNP --> LinuxConfig[name: linux101<br/>kubernetes_cluster_id: AKS ID<br/>vm_size: Standard_DS2_v2<br/>node_count: 1]
+        LinuxConfig --> LinuxAS[enable_auto_scaling: true<br/>min_count: 1<br/>max_count: 3]
+        LinuxConfig --> LinuxLabel[node_labels:<br/>app = "java-apps"<br/>nodepoolos = "linux"]
+        LinuxConfig --> LinuxTags[tags:<br/>environment = "dev"]
+    end
+    
+    subgraph "Windows Node Pool Resource"
+        WindowsNP[azurerm_kubernetes_cluster_node_pool]
+        WindowsNP --> WinConfig[name: win101<br/>os_type: Windows<br/>vm_size: Standard_DS2_v2<br/>node_count: 1]
+        WinConfig --> WinAS[enable_auto_scaling: true<br/>min_count: 1<br/>max_count: 3]
+        WinConfig --> WinLabel[node_labels:<br/>app = "dotnet-apps"<br/>nodepoolos = "windows"]
+        WinConfig --> WinTags[tags:<br/>environment = "dev"]
+    end
+    
+    subgraph "Terraform Resource Dependencies"
+        Depends[Resource Dependencies]
+        Depends --> D1[Node pools depend on:<br/>kubernetes_cluster_id]
+        Depends --> D2[Reference cluster resource:<br/>azurerm_kubernetes_cluster.aks.id]
+        Depends --> D3[Terraform creates cluster first<br/>then node pools]
+    end
+    
+    subgraph "Output Values"
+        Outputs[Node Pool Outputs]
+        Outputs --> LinuxOut[linux_node_pool_id<br/>linux_node_pool_name]
+        Outputs --> WinOut[windows_node_pool_id<br/>windows_node_pool_name]
+    end
+    
+    subgraph "Terraform Workflow"
+        Workflow[Provisioning Steps]
+        Workflow --> TFPlan[terraform plan<br/>Shows 2 new node pools]
+        TFPlan --> TFApply[terraform apply<br/>Creates Linux + Windows pools]
+        TFApply --> Verify[kubectl get nodes<br/>See 3 pools: system, linux101, win101]
+        Verify --> Deploy[Deploy apps with nodeSelector<br/>Target specific pools]
+    end
+    
+    subgraph "Node Pool Features"
+        Features[Node Pool Capabilities]
+        Features --> F1[Independent Scaling<br/>Each pool scales separately]
+        Features --> F2[Custom Node Labels<br/>For pod scheduling]
+        Features --> F3[Different VM Sizes<br/>Per workload requirements]
+        Features --> F4[OS-Specific Pools<br/>Linux + Windows support]
+    end
+    
+    ExistingCluster --> LinuxNP
+    ExistingCluster --> WindowsNP
+    LinuxNP --> Outputs
+    WindowsNP --> Outputs
+    
+    style ExistingCluster fill:#326ce5
+    style LinuxNP fill:#28a745
+    style WindowsNP fill:#0078d4
+    style Workflow fill:#9370db
+    style Outputs fill:#ffd700
+```
+
+### Understanding the Diagram
+
+- **Separate Node Pool Resources**: Unlike the default node pool (defined within AKS cluster resource), additional pools use **azurerm_kubernetes_cluster_node_pool** as separate Terraform resources for **modular management**
+- **Resource Dependency**: Node pools require **kubernetes_cluster_id** referencing the AKS cluster, ensuring Terraform creates the **cluster first** before attempting to create **node pools**
+- **Linux User Pool**: Creates **linux101** node pool with **Standard_DS2_v2** VMs, auto-scaling (1-3 nodes), and custom **node labels** (app=java-apps) for targeted pod scheduling
+- **Windows User Pool**: Creates **win101** pool with **os_type: Windows**, enabling **Windows Server 2019** nodes for **.NET Framework** applications, with identical auto-scaling configuration
+- **Node Labels**: Each pool gets **custom node labels** added automatically to all nodes, enabling **nodeSelector** in pod specs to schedule workloads on specific pools
+- **Independent Auto-Scaling**: Each node pool has **separate auto-scaling config** (min/max counts), allowing different scaling profiles based on workload characteristics
+- **Terraform Plan Output**: Running **terraform plan** shows **2 new resources to add** (Linux and Windows pools), previewing infrastructure changes before applying
+- **Verification Workflow**: After **terraform apply**, use **kubectl get nodes** to verify all **three pools** appear (systempool, linux101, win101) with appropriate OS labels
+- **Workload Targeting**: Deploy applications with **nodeSelector** referencing the **custom labels** (app=java-apps, app=dotnet-apps) to route pods to appropriate node pools
+- **Infrastructure as Code Benefits**: Node pools defined in Terraform are **version-controlled**, **reproducible**, and can be **destroyed/recreated** easily for environment management
+
+---
+
 ## Step-01: Introduction
 - Create Windows and Linux Nodepools
 
